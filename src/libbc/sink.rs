@@ -1,0 +1,76 @@
+use std::io;
+use std::marker::PhantomData;
+use std::sync::Arc;
+use anyhow::Result;
+use rodio::{OutputStream, OutputStreamHandle};
+use rodio::cpal;
+use rodio::cpal::traits::{HostTrait, DeviceTrait};
+use crate::libbc::stream_decoder::Mp3StreamDecoder;
+
+pub struct MusicStruct<'a> {
+    pub stream_handle: Option<OutputStreamHandle>,
+    phantom: PhantomData<&'a ()>,
+}
+
+impl MusicStruct<'_> {
+    pub(crate) fn new() -> Self {
+        let (stream, stream_handle) = get_output_stream().unwrap();
+
+        std::mem::forget(stream);
+        MusicStruct {
+            stream_handle: Some(stream_handle),
+            phantom: PhantomData,
+        }
+    }
+}
+
+fn get_output_stream() -> Result<(OutputStream, OutputStreamHandle)> {
+    #[cfg(target_family = "windows")]
+    {
+        let host = cpal::host_from_id(cpal::HostId::Asio).expect("failed to initialise ASIO host");
+        if host.output_devices().unwrap().into_iter().count() > 0 {
+            let devices = host.output_devices()?;
+            let b = String::from("ASIO4ALL v2");
+            let dev = devices.into_iter().find(|x| x.name().unwrap() == b).unwrap();
+            Ok(OutputStream::try_from_device(&dev)?)
+        } else { // Wasapi
+            Ok(OutputStream::try_default()?)
+        }
+    }
+    #[cfg(target_family = "unix")]
+    {
+        Ok(OutputStream::try_default()?)
+    }
+}
+
+#[test]
+fn list_host_devices() {
+    let host = cpal::default_host();
+    // let host = cpal::host_from_id(cpal::HostId::Asio).expect("failed to initialise ASIO host");
+    let devices = host.output_devices().unwrap();
+    for device in devices{
+        let dev: rodio::Device = device.into();
+        let dev_name: String = dev.name().unwrap();
+        println!(" # Device : {}", dev_name);
+    }
+}
+
+#[derive(Debug)]
+pub struct Mp3(Arc<Vec<u8>>);
+
+impl AsRef<[u8]> for Mp3 {
+    fn as_ref(&self) -> &[u8] { &self.0 }
+}
+
+impl Mp3 {
+    pub fn load(buf: Vec<u8>) -> io::Result<Mp3> {
+        // save_file(&buf);
+        Ok(Mp3(Arc::new(buf)))
+    }
+    pub fn cursor(self: &Self) -> io::Cursor<Mp3> {
+        io::Cursor::new(Mp3(self.0.clone()))
+    }
+    pub fn decoder(self: &Self) -> Result<Mp3StreamDecoder<io::Cursor<Mp3>>> {
+        Ok(Mp3StreamDecoder::new(self.cursor()).unwrap())
+    }
+}

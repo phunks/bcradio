@@ -1,0 +1,58 @@
+[package]
+name = "bcradio"
+version = "0.2.0"
+edition = "2021"
+
+[profile.release]
+debug = true
+strip = "symbols"
+
+[dependencies]
+anyhow = { version = "1.0.75" }
+async-channel = { version = "2.1.0" }
+async-std = { version = "1.12.0" }
+async-stream = { version = "0.3.5" }
+async-trait = { version = "0.1.74" }
+chrono = { version = "0.4.31"}
+clap = { version = "4.4.8", features = ["derive"] }
+colored = { version = "2.0.4" }
+console = { version = "0.15.7" }
+cpal = { version = "0.15.2", features = ["asio"] }
+crossbeam = { version = "0.8.2" }
+crossbeam-channel = { version = "0.5.8" }
+crossbeam-utils = { version = "0.8.16" }
+crossterm = { version = "0.27.0" }
+flume = { version = "0.11.0" }
+futures = { version = "0.3.29" }
+http = { version = "0.2.10" }
+indicatif = { version = "0.17.7" }
+inquire = { version = "0.6.2" }
+lazy_static = { version = "1.4.0" }
+lock_api = { version = "0.4.11" }
+minimp3 = { version = "0.5.1", features = ["async_tokio"] }
+mp3-duration = { version = "0.1.10" }
+once_cell = { version = "1.18.0" }
+rand = { version = "0.8.5" }
+ratatui = { version = "=0.23.0" }
+reqwest = { version = "0.11.22", features = ["trust-dns", "blocking", "json", "stream", "gzip"] }
+rodio = { version = "0.17.3" }
+scraper = { version = "0.18.1" }
+serde = { version = "1.0.192", features = ["derive"] }
+serde_json = { version = "1.0.108" }
+symphonia = { version = "0.5.3" }
+tokio = { version = "1.34.0", features = ["full"] }
+tokio-scoped = { version = "0.2.0" }
+tui-textarea = { version = "0.3.1" }
+url = { version = "2.4.1"}
+ctrlc = { version = "3.4.1" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.48.0" }
+sysinfo = { version = "0.29.10" }
+
+[patch.crates-io]
+cpal = { git = "https://github.com/RustAudio/cpal.git", branch = "master", commit = "f51589c" }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2.148" }
+

@@ -1,0 +1,77 @@
+use std::{cmp, io};
+use clap::Parser;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use ratatui::backend::CrosstermBackend;
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::event::{EnableMouseCapture, DisableMouseCapture};
+use tui_textarea::{Key, TextArea};
+use ratatui::Terminal;
+use tui_textarea::Input;
+use anyhow::Result;
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::widgets::Borders;
+
+const ABOUT: &str = "
+A command line music player for https://bandcamp.com
+
+[Key]                [Description]
+ 0-9                  adjust volume
+ h                    help
+ s                    free word search
+ f                    favorite search
+ n                    play next
+ p                    play/pause
+ Q                    graceful kill
+ Ctrl+C               exit";
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about = ABOUT)]
+pub struct Args {}
+
+pub fn show_help() -> Result<()> {
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+
+    enable_raw_mode()?;
+    crossterm::execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+        )?;
+
+    let backend = CrosstermBackend::new(stdout);
+    let mut term = Terminal::new(backend)?;
+    term.hide_cursor()?;
+    let mut textarea = TextArea::from(ABOUT.split('\n'));
+    textarea.set_block(
+        ratatui::widgets::block::Block::default().borders(Borders::NONE)
+    );
+
+    term.draw(|f| {
+        const MIN_HEIGHT: usize = 13;
+        let height = cmp::max(textarea.lines().len(), MIN_HEIGHT) as u16;
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(height),
+                Constraint::Min(0)].as_slice())
+            .split(f.size());
+        f.render_widget(textarea.widget(), chunks[0]);
+    })?;
+
+    loop {
+        match crossterm::event::read()?.into() {
+            Input { key: Key::Esc, .. } => break,
+            Input { key: Key::Char('h'), .. } => break,
+            Input { .. } => {},
+        }
+    }
+
+    crossterm::execute!(
+            term.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+    disable_raw_mode()?;
+    term.show_cursor()?;
+    Ok(())
+}
