@@ -1,8 +1,8 @@
+use crate::debug_println;
 use colored::Colorize;
 use console::Term;
 use once_cell::sync::Lazy;
 use std::fmt::Display;
-use crate::debug_println;
 
 static STDOUT: Lazy<Term> = Lazy::new(Term::stdout);
 
@@ -35,9 +35,7 @@ fn try_get_current_executable_name() -> Option<String> {
 
 fn ctrlc_handler() {
     #[cfg(windows)]
-    ctrlc::set_handler(move || {
-        asio_kill()
-    }).expect("Error setting Ctrl-C handler")
+    ctrlc::set_handler(move || asio_kill()).expect("Error setting Ctrl-C handler")
     // tokio::spawn(async move {
     //     tokio::signal::ctrl_c().await.unwrap();
     //     asio_kill();
@@ -45,8 +43,9 @@ fn ctrlc_handler() {
 }
 
 #[cfg(windows)]
-pub fn asio_kill() { // for ASIO Driver
-    use sysinfo::{Pid, PidExt, Signal, ProcessExt, System, SystemExt};
+pub fn asio_kill() {
+    // for ASIO Driver
+    use sysinfo::{Pid, PidExt, ProcessExt, Signal, System, SystemExt};
     let mut sys = System::new_all();
     sys.refresh_all();
     let exec_name = try_get_current_executable_name().unwrap();

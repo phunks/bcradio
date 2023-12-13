@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -88,5 +87,5 @@ pub struct TrackInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Mp3Url {
     #[serde(rename = "mp3-128")]
-    pub(crate) mp3_128: Option<String>
+    pub(crate) mp3_128: Option<String>,
 }

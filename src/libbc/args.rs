@@ -1,15 +1,16 @@
 use std::{cmp, io};
-use clap::Parser;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use ratatui::backend::CrosstermBackend;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
-use crossterm::event::{EnableMouseCapture, DisableMouseCapture};
-use tui_textarea::{Key, TextArea};
-use ratatui::Terminal;
-use tui_textarea::Input;
+
 use anyhow::Result;
+use clap::Parser;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
+use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::Terminal;
 use ratatui::widgets::Borders;
+use tui_textarea::{Key, TextArea};
+use tui_textarea::Input;
 
 const ABOUT: &str = "
 A command line music player for https://bandcamp.com
@@ -33,44 +34,43 @@ pub fn show_help() -> Result<()> {
     let mut stdout = stdout.lock();
 
     enable_raw_mode()?;
-    crossterm::execute!(
-            stdout,
-            EnterAlternateScreen,
-            EnableMouseCapture,
-        )?;
+    crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture,)?;
 
     let backend = CrosstermBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
     term.hide_cursor()?;
     let mut textarea = TextArea::from(ABOUT.split('\n'));
-    textarea.set_block(
-        ratatui::widgets::block::Block::default().borders(Borders::NONE)
-    );
+    textarea.set_block(ratatui::widgets::block::Block::default().borders(Borders::NONE));
 
     term.draw(|f| {
         const MIN_HEIGHT: usize = 13;
         let height = cmp::max(textarea.lines().len(), MIN_HEIGHT) as u16;
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(height),
-                Constraint::Min(0)].as_slice())
+            .constraints([Constraint::Length(height), Constraint::Min(0)].as_slice())
             .split(f.size());
         f.render_widget(textarea.widget(), chunks[0]);
     })?;
 
     loop {
         match crossterm::event::read()?.into() {
-            Input { key: Key::Esc, .. } => break,
-            Input { key: Key::Char('h'), .. } => break,
-            Input { .. } => {},
+            Input {
+                key: Key::Esc,
+                ..
+            } => break,
+            Input {
+                key: Key::Char('h'),
+                ..
+            } => break,
+            Input { .. } => {}
         }
     }
 
     crossterm::execute!(
-            term.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
+        term.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     disable_raw_mode()?;
     term.show_cursor()?;
     Ok(())

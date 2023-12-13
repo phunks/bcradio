@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::marker::PhantomData;
+
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +10,9 @@ pub struct Track {
     pub album_title: String,
     pub artist_name: String,
     pub art_id: Option<i64>,
+    // pub publish_date: String,
+    // pub link: Link,
+    // pub location: Option<String>,
     pub band_id: i64,
     pub url: String,
     pub duration: f32,
@@ -23,6 +27,9 @@ impl Clone for Track {
             album_title: self.album_title.clone(),
             artist_name: self.artist_name.clone(),
             art_id: self.art_id,
+            // publish_date: self.publish_date.clone(),
+            // link: self.link.clone(),
+            // location: self.location.clone(),
             band_id: self.band_id,
             url: self.url.clone(),
             duration: self.duration,
@@ -30,6 +37,12 @@ impl Clone for Track {
             buffer: self.buffer.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Link {
+    pub subdomain: String,
+    pub slug: String,
 }
 
 #[derive(Debug)]

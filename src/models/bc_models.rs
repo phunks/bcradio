@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -9,7 +8,7 @@ pub struct BandCampJsonMessage {
     pub ui_sig: String,
     pub data_sig: String,
     pub total_count: i64,
-    pub spec_id: i64
+    pub spec_id: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,7 +19,7 @@ pub struct Args {
     pub r: Option<String>,
     pub w: i64,
     pub p: i64,
-    pub following: bool
+    pub following: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -51,7 +50,7 @@ pub struct Item {
     pub recommendations: Option<String>,
     pub license_id: Option<i64>,
     pub territories: Option<String>,
-    pub lo_querystr: String
+    pub lo_querystr: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,14 +59,14 @@ pub struct UrlHints {
     pub custom_domain: Option<String>,
     pub custom_domain_verified: Option<i32>,
     pub slug: String,
-    pub item_type: String
+    pub item_type: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BioImage {
     pub image_id: Option<i64>,
     pub height: Option<i32>,
-    pub width: Option<i32>
+    pub width: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -76,11 +75,11 @@ pub struct FeaturedTrack {
     pub duration: f32,
     pub id: i64,
     pub title: String,
-    pub encodings_id: i64
+    pub encodings_id: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct File {
     #[serde(rename = "mp3-128")]
-    pub mp3_128: String
+    pub mp3_128: String,
 }

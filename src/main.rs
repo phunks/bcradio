@@ -1,15 +1,14 @@
-
-mod models;
 mod libbc;
+mod models;
 
-use clap::Parser;
-use std::ops::Deref;
-use anyhow::Result;
-use libbc::player::{PARK, RXTX};
 use crate::libbc::args::Args;
-use crate::libbc::terminal;
 use crate::libbc::player;
 use crate::libbc::shared_data::SharedState;
+use crate::libbc::terminal;
+use anyhow::Result;
+use clap::Parser;
+use libbc::player::{PARK, RXTX};
+use std::ops::Deref;
 
 const LOGO: &str = r#"
 ▄▄▄▄·  ▄▄· ▄▄▄   ▄▄▄· ·▄▄▄▄  ▪
@@ -43,12 +42,10 @@ async fn start_playing() -> Result<()> {
                         *PARK.lock().unwrap() = false;
                         RXTX.deref().0.send(event).await?
                     }
-                    'a'..='z' | '0'..='9' => {
-                        RXTX.deref().0.send(event).await?
-                    }
+                    'a'..='z' | '0'..='9' => RXTX.deref().0.send(event).await?,
                     'Q' => {
                         RXTX.deref().0.send(event).await?;
-                        break
+                        break;
                     }
                     _ => {}
                 };
