@@ -8,12 +8,13 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Local};
 use colored::Colorize;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use tokio::task::JoinHandle;
 
 use crate::ceil;
 use crate::libbc::player::{PARK, PROG};
-pub use crate::libbc::shared_data::CurrentTrack;
+use crate::models::shared_data_models::CurrentTrack;
 
 #[async_trait]
 pub(crate) trait Progress<'a> {
@@ -37,7 +38,7 @@ pub(crate) trait Progress<'a> {
     fn disable_spinner(&self);
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct Bar<'a> {
     mutex_progress_bar: Arc<Mutex<Option<ProgressBar>>>,
     phantom: PhantomData<&'a ()>,
@@ -59,10 +60,7 @@ static PROGRESS_BAR: Mutex<Option<ProgressBar>> = Mutex::new(None);
 #[async_trait]
 impl Progress<'static> for Bar<'static> {
     fn new() -> Self {
-        Bar {
-            mutex_progress_bar: Arc::new(Mutex::new(None)),
-            phantom: Default::default(),
-        }
+        Default::default()
     }
 
     fn refresh_song_info_on_screen(&self, local_time: DateTime<Local>, unixtime: u64) {
@@ -79,11 +77,12 @@ impl Progress<'static> for Bar<'static> {
 
         let dt = item.play_date;
         let dtf = dt.format("%H:%M:%S").to_string();
+        disable_raw_mode()?;
         println!("{}", dtf.truecolor(90, 91, 103));
-        println!("{:<11} {}", "Song:"  .truecolor(146, 49,  176), item.track);
-        println!("{:<11} {}", "Artist:".truecolor(126, 87,  194), item.artist_name);
-        println!("{:<11} {}", "Album:" .truecolor(121, 134, 203), item.album_title);
-
+        println!("{:<11} {}", "Song:".truecolor(146, 49, 176), item.track);
+        println!("{:<11} {}", "Artist:".truecolor(126, 87, 194), item.artist_name);
+        println!("{:<11} {}", "Album:".truecolor(121, 134, 203), item.album_title);
+        enable_raw_mode()?;
         let progress_bar_len = if total_seconds > 0 {
             total_seconds as u64
         } else {
@@ -92,7 +91,7 @@ impl Progress<'static> for Bar<'static> {
         let b = self.clone();
         let progress_bar_style = ProgressStyle::with_template(
             "{prefix}  {wide_bar} {progress_info} {spinner:.dim.bold} ",
-        )?
+        ).unwrap()
             .tick_chars("⠁⠂⠄⡀⠄⠂ ")
             .with_key(
                 "progress_info",
@@ -107,7 +106,6 @@ impl Progress<'static> for Bar<'static> {
             .with_position(0);
 
         PROGRESS_BAR.lock().unwrap().replace(prog_bar);
-        // self.mutex_progress_bar.lock().unwrap().replace(prog_bar);
         Ok(())
     }
 
@@ -211,7 +209,6 @@ impl UpdateProgressBar for Bar<'_> {
             T: FnOnce(&ProgressBar),
     {
         if let Some(progress_bar) = PROGRESS_BAR.lock().unwrap().as_ref() {
-            // if let Some(progress_bar) = self.mutex_progress_bar.lock().unwrap().as_ref() {
             action(progress_bar);
         }
     }

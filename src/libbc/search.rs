@@ -1,6 +1,8 @@
 use crate::libbc::progress_bar::Progress;
-use crate::libbc::shared_data::{post_request, SharedState, Track};
+use crate::libbc::shared_data::SharedState;
 use crate::libbc::stream_adapter::StreamAdapter;
+use crate::libbc::http_client::post_request;
+use crate::models::shared_data_models::Track;
 use crate::models::search_models::{SearchJsonRequest, SearchJsonResponse, TrackInfo};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -12,18 +14,19 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::widgets::Borders;
 use ratatui::Terminal;
-use reqwest::Response;
 use scraper::{Html, Selector};
-use simd_json::OwnedValue as Value;
+
 use std::cmp;
 use std::io;
 use bytes::BytesMut;
+use simd_json::OwnedValue as Value;
 use simd_json::prelude::ValueAsScalar;
 use tui_textarea::{Input, Key, TextArea};
 
+
 #[async_trait]
 pub trait Search {
-    async fn html_to_json(res: Response) -> Result<Value>;
+    async fn html_to_json(res: Vec<u8>) -> Result<Value>;
     async fn json_to_track(self, json: Value) -> Result<Vec<Track>>;
     async fn json_to_track_with_band_id(self, json: Value) -> Result<Vec<Track>>;
     async fn j2t(self, json: Value, fuzzy: bool) -> Result<Vec<Track>>;
@@ -33,9 +36,9 @@ pub trait Search {
 
 #[async_trait]
 impl Search for SharedState {
-    async fn html_to_json(res: Response) -> Result<Value> {
-        let html = &res.text().await?;
-        let doc = Html::parse_document(html);
+    async fn html_to_json(res: Vec<u8>) -> Result<Value> {
+        let html = String::from_utf8(res)?;
+        let doc = Html::parse_document(&html);
 
         let c = doc
             .select(&Selector::parse("script[data-tralbum]").unwrap())
@@ -46,7 +49,7 @@ impl Search for SharedState {
             .unwrap();
 
         let mut b = BytesMut::new();
-        b.extend_from_slice((&*c).as_ref());
+        b.extend_from_slice(c.as_ref());
         Ok(simd_json::from_slice(&mut b)?)
     }
 
@@ -67,7 +70,7 @@ impl Search for SharedState {
         let mut v: Vec<Track> = Vec::new();
         let t = &json["trackinfo"];
 
-        if let Ok(track_info) = simd_json::serde::from_refowned_value::<Vec<TrackInfo>>(&t) {
+        if let Ok(track_info) = simd_json::serde::from_refowned_value::<Vec<TrackInfo>>(t) {
             for i in track_info.iter() {
                 let t = Track {
                     genre_text: String::new(),
@@ -80,6 +83,7 @@ impl Search for SharedState {
                     track: i.title.to_owned().unwrap().to_owned(),
                     buffer: vec![],
                 };
+
                 if bid.eq(band_id) {
                     v.push(t);
                 } else if fuzzy {
@@ -118,25 +122,19 @@ impl Search for SharedState {
         }
 
         let url_list = v.iter().map(|s| s.to_string()).collect();
-        let content_type = "text/html";
-        let client = self.gh_client(content_type)?;
-        let r = match &*search_type {
-            "t" => {
-                // track search
+        let r = match search_type {
+            "t" => { // track search
                 self.to_owned()
                     .bulk_url(
-                        client,
                         url_list,
                         <SharedState as Search>::html_to_json,
                         <SharedState as Search>::json_to_track_with_band_id,
                     )
                     .await
             }
-            "a" => {
-                // album search
+            "a" => { // album search
                 self.to_owned()
                     .bulk_url(
-                        client,
                         url_list,
                         <SharedState as Search>::html_to_json,
                         <SharedState as Search>::json_to_track,

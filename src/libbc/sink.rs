@@ -1,11 +1,12 @@
 use crate::libbc::stream_decoder::Mp3StreamDecoder;
 use anyhow::Result;
-use rodio::cpal;
-use rodio::cpal::traits::{DeviceTrait, HostTrait};
 use rodio::{OutputStream, OutputStreamHandle};
 use std::io;
 use std::marker::PhantomData;
 use std::sync::Arc;
+
+use cpal::traits::HostTrait;
+use rodio::DeviceTrait;
 
 pub struct MusicStruct<'a> {
     pub stream_handle: Option<OutputStreamHandle>,
@@ -70,13 +71,12 @@ impl AsRef<[u8]> for Mp3 {
 
 impl Mp3 {
     pub fn load(buf: Vec<u8>) -> io::Result<Mp3> {
-        // save_file(&buf);
         Ok(Mp3(Arc::new(buf)))
     }
-    pub fn cursor(self: &Self) -> io::Cursor<Mp3> {
+    pub fn cursor(&self) -> io::Cursor<Mp3> {
         io::Cursor::new(Mp3(self.0.to_owned()))
     }
-    pub async fn decoder(self: &Self) -> Result<Mp3StreamDecoder<io::Cursor<Mp3>>> {
+    pub async fn decoder(&self) -> Result<Mp3StreamDecoder<io::Cursor<Mp3>>> {
         Ok(Mp3StreamDecoder::new(self.cursor()).await.unwrap())
     }
 }

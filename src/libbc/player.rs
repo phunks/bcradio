@@ -7,9 +7,8 @@ use async_channel::{Receiver, Sender, unbounded};
 use async_trait::async_trait;
 use futures::future::abortable;
 use lazy_static::lazy_static;
-use rodio::{Sink, Source};
+use rodio::Sink;
 
-use crate::debug_println;
 use crate::libbc::args;
 use crate::libbc::playlist::PlayList;
 use crate::libbc::progress_bar::Progress;
@@ -35,7 +34,7 @@ pub trait Player<'a>: Send + Sync + 'static {
 #[async_trait]
 impl Player<'static> for SharedState {
     async fn player_thread() -> Result<()> {
-        let state: SharedState = SharedState::new();
+        let state: SharedState = SharedState::default();
 
         let progress = state.to_owned();
         let (_, hdl0) = abortable(progress.bar.run().await);
@@ -43,7 +42,7 @@ impl Player<'static> for SharedState {
         let url = state.ask_url().await;
         state.set_selected_url(url?);
 
-        let mut current_volume = 9;
+        let mut _current_volume = 9;
 
         let stream_handle = MusicStruct::new();
         let sink = Sink::try_new(&stream_handle.stream_handle.unwrap())?;
@@ -56,8 +55,8 @@ impl Player<'static> for SharedState {
             if let Ok(res) = RXTX.deref().1.try_recv() {
                 match res {
                     '0'..='9' => { // change volume
-                        current_volume = res.to_string().parse()?;
-                        sink.set_volume(map_volume_to_rodio_volume(current_volume));
+                        _current_volume = res.to_string().parse()?;
+                        sink.set_volume(map_volume_to_rodio_volume(_current_volume));
                     }
                     'n' => { sink.stop() }
                     'p' => { // play pause
@@ -79,7 +78,7 @@ impl Player<'static> for SharedState {
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
 
-        /// till the end
+        // till the end
         let hdl1 = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(1000));
             loop {
@@ -89,9 +88,7 @@ impl Player<'static> for SharedState {
                 };
             }
         });
-        match tokio::join!(hdl1) {
-            _ => hdl0.abort(),
-        }
+        tokio::join!(hdl1).0.is_ok().then(|| hdl0.abort());
         Ok(())
     }
 }
@@ -119,7 +116,7 @@ async fn search(state: &SharedState) -> Result<()> {
     state.bar.enable_tick_on_screen();
 
     *PARK.lock().unwrap() = true;
-    if !search_str.is_none() {
+    if search_str.is_some() {
         state.search("a", search_str).await?;
     }
     Ok(())
@@ -127,7 +124,7 @@ async fn search(state: &SharedState) -> Result<()> {
 
 fn help(state: &SharedState) -> Result<()> {
     state.bar.disable_tick_on_screen();
-    let _ = args::show_help()?;
+    args::show_help()?;
     state.bar.enable_tick_on_screen();
 
     *PARK.lock().unwrap() = true;

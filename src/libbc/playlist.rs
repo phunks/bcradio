@@ -1,29 +1,31 @@
 use std::collections::VecDeque;
-use std::io::Read;
+use std::process;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
-use inquire::Select;
+use inquire::{InquireError, Select};
 use inquire::ui::{Attributes, Color, RenderConfig, Styled, StyleSheet};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use reqwest::Response;
 use scraper::{Html, Selector};
 use simd_json::OwnedValue as Value;
-use simd_json::prelude::ValueAsContainer;
 
 use crate::debug_println;
-use crate::libbc::shared_data::{get_request, get_curl_request, get_async_curl_request, SharedState, Track};
+use crate::libbc::http_client::{Client, get_request};
+use crate::libbc::shared_data::SharedState;
 use crate::libbc::stream_adapter::StreamAdapter;
 use crate::models::bc_models::{BandCampJsonMessage, Item};
 use crate::models::index_models::{IndexG, IndexT, MessageForIndexPage};
+use crate::models::shared_data_models::Track;
+
 
 #[async_trait]
 pub trait PlayList {
     async fn generate_playlist_url(&self) -> Result<()>;
     async fn resp_to_json(res: Response) -> Result<Value>;
-    async fn vec_to_json(res: Vec<u8>) -> Result<Value>;
+    async fn vec_to_json(vec: Vec<u8>) -> Result<Value>;
     async fn excerpt_json_from_message(self, json: Value) -> Result<Vec<Track>>;
     async fn append_url_parameter(&self, url: String, n: i32) -> String;
     async fn ask_url(&self) -> Result<String>;
@@ -53,7 +55,7 @@ impl PlayList for SharedState {
                                 self.get_rnd_pages(0) as i32,
                             )
                             .await;
-                        let (p, _) = self.get_json_bc_message(url.to_owned()).await?;
+                        let (p, _) = self.get_json_bc_message_with_curl(url.to_owned()).await?;
                         pv.append(&mut VecDeque::from(p));
                         self.drain_rnd_page_list_element(1);
                         if i > 1 {
@@ -87,28 +89,21 @@ impl PlayList for SharedState {
                         }
                     }
 
-                    let content_type = "application/json";
-                    let client = self.gh_client(content_type).unwrap();
                     let r = self
                         .to_owned()
                         .bulk_url(
-                            client,
                             url_list,
-                            <SharedState as PlayList>::resp_to_json,
+                            <SharedState as PlayList>::vec_to_json,
                             <SharedState as PlayList>::excerpt_json_from_message,
                         )
                         .await;
-
                     for i in r? { pv.push_front(i) }
                     pv.make_contiguous().shuffle(&mut thread_rng());
                     self.set_total_count(tcnt);
                     self.append_tracklist(pv);
-
-
                 }
             }
         }
-
         Ok(())
     }
 
@@ -118,8 +113,8 @@ impl PlayList for SharedState {
         Ok(val)
     }
 
-    async fn vec_to_json(mut res: Vec<u8>) -> Result<Value> {
-        let bytes = res.as_mut_slice();
+    async fn vec_to_json(mut vec: Vec<u8>) -> Result<Value> {
+        let bytes = vec.as_mut_slice();
         let val = simd_json::from_slice(bytes)?;
         Ok(val)
     }
@@ -128,9 +123,9 @@ impl PlayList for SharedState {
         let message = simd_json::serde::from_refowned_value::<BandCampJsonMessage>(&json)?;
         let items = message.items;
         debug_println!("debug: get_message => {}", items.len());
-        let test_list = self.append_track_list(items)?;
+        let track_list = self.append_track_list(items)?;
         let mut v: Vec<Track> = Vec::new();
-        for t in test_list {
+        for t in track_list {
             v.append(&mut vec![t]);
         }
         Ok(v)
@@ -145,11 +140,9 @@ impl PlayList for SharedState {
             let burl = String::from("https://bandcamp.com");
         #[cfg(debug)]
             let burl = String::from("http://localhost:8080");
-        use std::time::Instant; //debug
-        let start = Instant::now(); //debug
-        // let buf = get_request(burl).await?.text().await?;
-        let buf = get_curl_request(burl)?;
-        debug_println!("Debug: {:?}", start.elapsed()); //debug
+
+        let client:Client = Default::default();
+        let buf = client.get_curl_request(burl)?.to_vec()?;
         let slice = String::from_utf8(buf)?;
         let doc = Html::parse_document(&slice);
 
@@ -161,7 +154,6 @@ impl PlayList for SharedState {
             .attr("data-blob")
             .unwrap();
         let json: Result<serde_json::Value, serde_json::Error> = serde_json::from_slice(c.as_ref());
-        // let aaa = unsafe { simd_json::serde::from_str(&mut c.to_owned()) };
         let t = &json?["discover_2015"]["options"];
         let url = self.select_url(t.to_owned())?;
 
@@ -175,17 +167,24 @@ impl PlayList for SharedState {
         let g: Vec<IndexG> = serde_json::from_str(&map["g"].to_string())?;
 
         let index_genre: Vec<&String> = g.iter().map(|x| &x.name).collect();
-        let mut url: String = String::new();
+        let mut _url = String::new();
         loop {
             let genre_ans = Select::new("genre?", index_genre.to_owned()).prompt();
-            if genre_ans.is_err() {
-                continue;
-            }
+            match genre_ans {
+                Ok(choice) => choice,
+                Err(e) => match e {
+                    InquireError::OperationCanceled => continue,
+                    InquireError::OperationInterrupted => process::exit(0),
+                    other_error => panic!("inquire error: {:?}", other_error),
+                }
+            };
             let genre_value = g.iter().find(|&x| &&x.name == genre_ans.as_ref().unwrap());
             let genre_type_len = &map["t"][&genre_value.unwrap().value];
 
             if genre_type_len.as_array().is_none() {
-                url = format!("https://bandcamp.com/api/discover/3/get_web?g={g}&s=top&gn=0&f=all&lo=true&lo_action_url=https%3A%2F%2Fbandcamp.com", g = genre_value.unwrap().value);
+
+                _url = format!("https://bandcamp.com/api/discover/3/get_web?g={g}&s=top&gn=0&f=all&lo=true&lo_action_url=https%3A%2F%2Fbandcamp.com",
+                               g = genre_value.unwrap().value);
                 break;
             } else {
                 let _t: Vec<IndexT> =
@@ -195,9 +194,14 @@ impl PlayList for SharedState {
                     .map(|x| &x.name)
                     .collect();
                 let music_type_ans = Select::new("music types?", index_music_types).prompt();
-                if music_type_ans.is_err() {
-                    continue;
-                }
+                match music_type_ans {
+                    Ok(choice) => choice,
+                    Err(e) => match e {
+                        InquireError::OperationCanceled => continue,
+                        InquireError::OperationInterrupted => process::exit(0),
+                        other_error => panic!("inquire error: {:?}", other_error),
+                    }
+                };
                 let music_type_value = _t
                     .iter()
                     .find(|&x| &&x.name == music_type_ans.as_ref().unwrap());
@@ -207,31 +211,27 @@ impl PlayList for SharedState {
                     format!("&t={t}", t = &music_type_value.unwrap().value)
                 };
 
-                url = format!("https://bandcamp.com/api/discover/3/get_web?g={g}&s=top{t}&gn=0&f=all&lo=true&lo_action_url=https%3A%2F%2Fbandcamp.com", g = genre_value.unwrap().value, t = t_opt);
+                _url = format!("https://bandcamp.com/api/discover/3/get_web?g={g}&s=top{t}&gn=0&f=all&lo=true&lo_action_url=https%3A%2F%2Fbandcamp.com",
+                               g = genre_value.unwrap().value,
+                               t = t_opt);
                 break;
             }
         }
-        Ok(url)
+        Ok(_url)
     }
 
     fn get_render_config(&self) -> RenderConfig {
-        let mut render_config = RenderConfig::default();
-        // help message
-        render_config.help_message = StyleSheet::new().with_fg(Color::rgb(150, 150, 140));
-        // question prompt
-        render_config.prompt_prefix = Styled::new("?").with_fg(Color::rgb(150, 150, 140));
-        // cursor
-        render_config.highlighted_option_prefix =
-            Styled::new(">").with_fg(Color::rgb(150, 250, 40));
-        // focus
-        render_config.selected_option = Some(StyleSheet::new().with_fg(Color::rgb(250, 180, 40)));
-
-        render_config.answer = StyleSheet::new()
-            .with_attr(Attributes::ITALIC)
-            .with_attr(Attributes::BOLD)
-            .with_fg(Color::rgb(220, 220, 240));
-
-        render_config
+        RenderConfig {
+            help_message: StyleSheet::new().with_fg(Color::rgb(150, 150, 140)), // help message
+            prompt_prefix: Styled::new("?").with_fg(Color::rgb(150, 150, 140)), // question prompt
+            highlighted_option_prefix: Styled::new(">").with_fg(Color::rgb(150, 250, 40)), // cursor
+            selected_option: Some(StyleSheet::new().with_fg(Color::rgb(250, 180, 40))), // focus
+            answer: StyleSheet::new()
+                .with_attr(Attributes::ITALIC)
+                .with_attr(Attributes::BOLD)
+                .with_fg(Color::rgb(220, 220, 240)),
+            ..Default::default()
+        }
     }
 
     fn calculate_page_number(&self, n: usize) -> usize {
@@ -269,11 +269,10 @@ impl PlayList for SharedState {
     async fn get_json_bc_message_with_curl(&self, url: String) -> Result<(Vec<Track>, i64)> {
         use std::time::Instant; //debug
         let start = Instant::now(); //debug
-        let res = get_async_curl_request(url)
-            .await?;
+        let client:Client = Default::default();
+        let res = client.get_curl_request(url)?.to_json()?;
         debug_println!("Debug: {:?}", start.elapsed()); //debug
-        let val = <SharedState as PlayList>::vec_to_json(res).await?;
-        let message = simd_json::serde::from_refowned_value::<BandCampJsonMessage>(&val)?;
+        let message = simd_json::serde::from_refowned_value::<BandCampJsonMessage>(&res)?;
         let items = message.items;
         debug_println!("debug: get curl bcmessage => {}", items.len());
         let track_list = self.append_track_list(items)?;
@@ -285,7 +284,7 @@ impl PlayList for SharedState {
     async fn get_message_index(&self, url: String) -> Result<(Vec<Track>, i64)> {
         let index = reqwest::get(url.as_str()).await?;
         let doc = Html::parse_document(&index.text().await?);
-        let mut c = doc
+        let c = doc
             .select(&Selector::parse("div[id='pagedata']").unwrap())
             .next()
             .unwrap()
@@ -293,14 +292,14 @@ impl PlayList for SharedState {
             .attr("data-blob")
             .unwrap();
 
-        let json: Result<serde_json::Value, serde_json::Error> = serde_json::from_str(&mut c);
+        let json: Result<serde_json::Value, serde_json::Error> = serde_json::from_str(c);
         let t = &json.unwrap()["discover_2015"]["initial"];
         let message = serde_json::from_value::<MessageForIndexPage>(t.to_owned())?;
         let items = message.items;
         debug_println!("debug: get_message_index => {}", items.len());
-        let test_list = self.append_track_list(items)?;
+        let track_list = self.append_track_list(items)?;
         let count = message.total_count;
-        Ok((test_list, count))
+        Ok((track_list, count))
     }
 
     fn append_track_list(&self, items: Vec<Item>) -> Result<Vec<Track>> {
@@ -324,6 +323,6 @@ impl PlayList for SharedState {
 
 pub fn bytes_mut(a: &Bytes) -> Result<BytesMut> {
     let mut b = BytesMut::new();
-    b.extend_from_slice(&*a);
+    b.extend_from_slice(a);
     Ok(b)
 }

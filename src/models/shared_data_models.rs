@@ -4,15 +4,12 @@ use std::marker::PhantomData;
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Track {
     pub genre_text: String,
     pub album_title: String,
     pub artist_name: String,
     pub art_id: Option<i64>,
-    // pub publish_date: String,
-    // pub link: Link,
-    // pub location: Option<String>,
     pub band_id: i64,
     pub url: String,
     pub duration: f32,
@@ -27,9 +24,6 @@ impl Clone for Track {
             album_title: self.album_title.clone(),
             artist_name: self.artist_name.clone(),
             art_id: self.art_id,
-            // publish_date: self.publish_date.clone(),
-            // link: self.link.clone(),
-            // location: self.location.clone(),
             band_id: self.band_id,
             url: self.url.clone(),
             duration: self.duration,
@@ -39,13 +33,13 @@ impl Clone for Track {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct Link {
     pub subdomain: String,
     pub slug: String,
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct CurrentTrack {
     pub duration: f32,
     pub track: String,
@@ -70,14 +64,14 @@ impl Clone for CurrentTrack {
     }
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct State {
     pub player: PlaylistInfo,
     pub server: ServerInfo,
     phantom: PhantomData<&'static ()>,
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct ServerInfo {
     pub select_url: VecDeque<String>,
     top_page: String,
@@ -92,7 +86,7 @@ impl Clone for ServerInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct PlaylistInfo {
     pub current_track: CurrentTrack,
     pub tracks: VecDeque<Track>,
@@ -100,28 +94,28 @@ pub struct PlaylistInfo {
     pub rnd_pages: VecDeque<usize>,
 }
 
-impl State {
-    pub fn new() -> State {
-        State {
-            player: PlaylistInfo {
-                current_track: CurrentTrack {
-                    duration: 0.0,
-                    album_title: String::new(),
-                    artist_name: String::new(),
-                    band_id: 0,
-                    track: String::new(),
-                    genre_text: String::new(),
-                    play_date: DateTime::default(),
-                },
-                tracks: VecDeque::new(),
-                total_count: 0,
-                rnd_pages: VecDeque::new(),
-            },
-            server: ServerInfo {
-                select_url: VecDeque::new(),
-                top_page: String::from("https://bandcamp.com/"),
-            },
-            phantom: PhantomData,
-        }
-    }
-}
+// impl State {
+//     pub fn new() -> State {
+//         State {
+//             player: PlaylistInfo {
+//                 current_track: CurrentTrack {
+//                     duration: 0.0,
+//                     album_title: String::new(),
+//                     artist_name: String::new(),
+//                     band_id: 0,
+//                     track: String::new(),
+//                     genre_text: String::new(),
+//                     play_date: DateTime::default(),
+//                 },
+//                 tracks: VecDeque::new(),
+//                 total_count: 0,
+//                 rnd_pages: VecDeque::new(),
+//             },
+//             server: ServerInfo {
+//                 select_url: VecDeque::new(),
+//                 top_page: String::from("https://bandcamp.com/"),
+//             },
+//             phantom: PhantomData,
+//         }
+//     }
+// }
