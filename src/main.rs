@@ -1,4 +1,4 @@
-use std::hash::Hash;
+
 use std::ops::Deref;
 use std::process;
 use anyhow::Result;
@@ -55,22 +55,19 @@ async fn start_playing() -> Result<()> {
                 },
                 Event::Key(e) => {
                     if e.kind == KeyEventKind::Press {
-                        match e.code {
-                            KeyCode::Char(c) => {
-                                match c {
-                                    's' | 'h' => {
-                                        *PARK.lock().unwrap() = false;
-                                        RXTX.deref().0.send(c).await?
-                                    },
-                                    'a'..='z' | '0'..='9' => RXTX.deref().0.send(c).await?,
-                                    'Q' => {
-                                        RXTX.deref().0.send(c).await?;
-                                        break;
-                                    },
-                                    _ => {},
-                                }
+                        if let KeyCode::Char(c) = e.code {
+                            match c {
+                                's' | 'h' => {
+                                    *PARK.lock().unwrap() = false;
+                                    RXTX.deref().0.send(c).await?
+                                },
+                                'a'..='z' | '0'..='9' => RXTX.deref().0.send(c).await?,
+                                'Q' => {
+                                    RXTX.deref().0.send(c).await?;
+                                    break;
+                                },
+                                _ => {},
                             }
-                            _ => {},
                         }
                     }
                 },

@@ -93,29 +93,3 @@ pub struct PlaylistInfo {
     pub total_count: i64,
     pub rnd_pages: VecDeque<usize>,
 }
-
-// impl State {
-//     pub fn new() -> State {
-//         State {
-//             player: PlaylistInfo {
-//                 current_track: CurrentTrack {
-//                     duration: 0.0,
-//                     album_title: String::new(),
-//                     artist_name: String::new(),
-//                     band_id: 0,
-//                     track: String::new(),
-//                     genre_text: String::new(),
-//                     play_date: DateTime::default(),
-//                 },
-//                 tracks: VecDeque::new(),
-//                 total_count: 0,
-//                 rnd_pages: VecDeque::new(),
-//             },
-//             server: ServerInfo {
-//                 select_url: VecDeque::new(),
-//                 top_page: String::from("https://bandcamp.com/"),
-//             },
-//             phantom: PhantomData,
-//         }
-//     }
-// }

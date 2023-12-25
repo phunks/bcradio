@@ -83,7 +83,7 @@ impl Search for SharedState {
                     track: i.title.to_owned().unwrap().to_owned(),
                     buffer: vec![],
                 };
-
+                #[allow(clippy::if_same_then_else)]
                 if bid.eq(band_id) {
                     v.push(t);
                 } else if fuzzy {

@@ -9,7 +9,9 @@ use simd_json::OwnedValue as Value;
 use std::future::Future;
 use std::pin::Pin;
 use std::vec::Vec;
+#[allow(unused_imports)]
 use simd_json::derived::MutableArray;
+
 
 
 ///
@@ -54,7 +56,7 @@ impl<'a> StreamAdapter<'a> for SharedState {
                             url,
                             id
                         );
-                        let client:Client = Default::default();
+                        let client: Client = Default::default();
                         let res = match client.get_curl_request(url.clone()) {
                             Ok(res) => res,
                             Err(err) => anyhow::bail!("Failed to get: {}: {}", url, err),
@@ -78,20 +80,20 @@ impl<'a> StreamAdapter<'a> for SharedState {
                 .map(move |v| {
                     let ss = self.clone();
                     tokio::task::spawn(async move {
-                        let id = std::thread::current().id();
-                        let (page, json) = v?;
+                        let _id = std::thread::current().id();
+                        let (_page, json) = v?;
 
                         debug_println!(
                             "-start get \"html\" from json: {}: {:?}",
-                            page,
-                            id
+                            _page,
+                            _id
                         );
 
                         let res = b(ss, json).await.unwrap();
                         debug_println!(
                             "-end get \"html\" from json: {}: {:?}",
-                            page,
-                            id
+                            _page,
+                            _id
                         );
                         Ok(res)
                     })

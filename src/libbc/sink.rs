@@ -5,7 +5,9 @@ use std::io;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+#[allow(unused_imports)]
 use cpal::traits::HostTrait;
+#[allow(unused_imports)]
 use rodio::DeviceTrait;
 
 pub struct MusicStruct<'a> {
@@ -37,8 +39,7 @@ fn get_output_stream() -> Result<(OutputStream, OutputStreamHandle)> {
                 .find(|x| x.name().unwrap() == b)
                 .unwrap();
             Ok(OutputStream::try_from_device(&dev)?)
-        } else {
-            // Wasapi
+        } else { // WASAPI
             Ok(OutputStream::try_default()?)
         }
     }

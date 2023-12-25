@@ -21,6 +21,7 @@ fn clear_screen() {
     execute!(io::stdout(), cursor::MoveTo(0, 0)).unwrap();
 }
 
+#[cfg(windows)]
 fn try_get_current_executable_name() -> Option<String> {
     std::env::current_exe()
         .ok()?

@@ -37,6 +37,7 @@ where
             current_frame_offset: 0,
         })
     }
+    #[allow(dead_code)]
     pub fn into_inner(self) -> R {
         self.decoder.into_inner()
     }

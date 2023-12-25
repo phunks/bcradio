@@ -13,11 +13,11 @@ codegen-units = 1
 
 
 [dependencies]
-anyhow = { version = "1.0.75" }
+anyhow = { version = "1.0.76" }
 async-channel = { version = "2.1.0" }
 async-std = { version = "1.12.0" }
 async-stream = { version = "0.3.5" }
-async-trait = { version = "0.1.74" }
+async-trait = { version = "0.1.75" }
 chrono = { version = "0.4.31"}
 clap = { version = "4.4.11", features = ["derive"] }
 colored = { version = "2.1.0" }

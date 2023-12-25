@@ -1,13 +1,12 @@
 
 use std::io;
-use std::io::{BufRead, Read};
-use std::ops::Deref;
+use std::io::Read;
+// use std::ops::Deref;
 use std::time::Duration;
 use curl::easy::{Easy2, Handler, List, WriteError};
 use simd_json::owned::Value;
 use crate::debug_println;
 use anyhow::{anyhow, Result};
-use bytes::Bytes;
 use curl::multi::Multi;
 use flate2::bufread;
 use reqwest::{header, Response};
@@ -65,7 +64,7 @@ impl Client {
             },
         }
     }
-
+    #[allow(dead_code)]
     pub async fn get_async_curl_request(self, url: String) -> Result<Client>  {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         debug_println!("debug: get_async_curl_request {}", url);
@@ -89,9 +88,9 @@ impl Client {
         let client = rx.recv().await.unwrap();
         Ok(client)
     }
-
+    #[allow(dead_code)]
     pub async fn async_curl_downloader(&self, url: String) -> Result<Client> {
-        let mut multi = Multi::new();
+        let multi = Multi::new();
         let mut request = Easy2::new(Collector(Vec::new()));
         request.url(&url)?;
         request.useragent(USER_AGENT)?;
@@ -101,7 +100,7 @@ impl Client {
         list.append("Content-Encoding: gzip")?;
         request.http_headers(list)?;
 
-        let mut handle = multi.add2(request)?;
+        let handle = multi.add2(request)?;
         while multi.perform().unwrap() > 0 {
             multi.wait(&mut [], Duration::from_secs(1)).unwrap();
         }
@@ -112,8 +111,9 @@ impl Client {
         Ok(Client { res: r, status: rc.response_code() })
     }
 
-    pub fn to_json(mut self) -> anyhow::Result<Value> {
-        let bytes = self.res.as_mut_slice();
+    pub fn to_json(self) -> anyhow::Result<Value> {
+        let mut b = self.res;
+        let bytes = b.as_mut_slice();
         let val = simd_json::from_slice(bytes)?;
         Ok(val)
     }
@@ -121,7 +121,7 @@ impl Client {
     pub fn to_vec(self) -> anyhow::Result<Vec<u8>> {
         Ok(self.res)
     }
-
+    #[allow(dead_code)]
     pub fn error_for_status(&self) -> Result<&Self> {
         let status = self.status.clone()?;
         if (400..600).contains(&status) {

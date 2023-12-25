@@ -1,6 +1,6 @@
-use crate::debug_println;
+
 use crate::libbc::progress_bar::Bar;
-use crate::libbc::http_client::{Client, get_request};
+use crate::libbc::http_client::get_request;
 use crate::models::shared_data_models::{CurrentTrack, State, Track};
 use anyhow::Result;
 use chrono::Local;
