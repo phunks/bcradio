@@ -55,3 +55,13 @@ macro_rules! debug_eprint {
 macro_rules! debug_eprintln {
     ($($arg:tt)*) => (#[cfg(debug_assertions)] eprintln!($($arg)*));
 }
+
+#[macro_export]
+macro_rules! vec_of_strings {
+    ($($x:expr),*) => (vec![$($x.to_string()),*]);
+}
+
+#[macro_export]
+macro_rules! format_duration {
+    ($($x:expr), *) =>(format!("{:02}:{:02}", $($x / 60, $x % 60),*));
+}

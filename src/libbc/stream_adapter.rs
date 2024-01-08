@@ -1,19 +1,17 @@
-use crate::debug_println;
-use crate::libbc::shared_data::SharedState;
-use crate::libbc::http_client::Client;
-use crate::models::shared_data_models::Track;
+use std::future::Future;
+use std::pin::Pin;
+use std::vec::Vec;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use simd_json::OwnedValue as Value;
-use std::future::Future;
-use std::pin::Pin;
-use std::vec::Vec;
 #[allow(unused_imports)]
 use simd_json::derived::MutableArray;
 
-
-
+use crate::debug_println;
+use crate::libbc::shared_data::SharedState;
+use crate::libbc::http_client::Client;
+use crate::models::shared_data_models::Track;
 ///
 /// https://github.com/hankei6km/test-rust-tokio-tasks-stream.git
 ///
@@ -52,7 +50,7 @@ impl<'a> StreamAdapter<'a> for SharedState {
 
                     tokio::task::spawn(async move {
                         debug_println!(
-                            "-start fetch json: {}: {:?}",
+                            "-start fetch json: {}: {:?}\r",
                             url,
                             id
                         );
@@ -66,7 +64,7 @@ impl<'a> StreamAdapter<'a> for SharedState {
                             .await
                             .with_context(|| format!("Failed to parse info of page: {}", url))?;
                         debug_println!(
-                            "-end fetch json: {}: {:?}",
+                            "-end fetch json: {}: {:?}\r",
                             url,
                             id
                         );
@@ -84,14 +82,14 @@ impl<'a> StreamAdapter<'a> for SharedState {
                         let (_page, json) = v?;
 
                         debug_println!(
-                            "-start get \"html\" from json: {}: {:?}",
+                            "-start get \"html\" from json: {}: {:?}\r",
                             _page,
                             _id
                         );
 
                         let res = b(ss, json).await.unwrap();
                         debug_println!(
-                            "-end get \"html\" from json: {}: {:?}",
+                            "-end get \"html\" from json: {}: {:?}\r",
                             _page,
                             _id
                         );

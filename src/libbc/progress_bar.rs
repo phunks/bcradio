@@ -8,12 +8,12 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Local};
 use colored::Colorize;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use tokio::task::JoinHandle;
 
+use crate::format_duration;
 use crate::ceil;
-use crate::libbc::player::{PARK, PROG};
+use crate::libbc::player::PROG;
 use crate::models::shared_data_models::CurrentTrack;
 
 #[async_trait]
@@ -31,7 +31,6 @@ pub(crate) trait Progress<'a> {
     fn disable_tick(&self);
     fn enable_tick_on_screen(&self);
     fn disable_tick_on_screen(&self);
-    fn humanize_seconds_to_minutes_and_seconds(&self, seconds: u64) -> String;
     async fn tick_progress_bar_progress(mut self);
     async fn run(mut self) -> JoinHandle<()>;
     fn enable_spinner(&self);
@@ -77,12 +76,12 @@ impl Progress<'static> for Bar<'static> {
 
         let dt = item.play_date;
         let dtf = dt.format("%H:%M:%S").to_string();
-        disable_raw_mode()?;
-        println!("{}", dtf.truecolor(90, 91, 103));
-        println!("{:<11} {}", "Song:".truecolor(146, 49, 176), item.track);
-        println!("{:<11} {}", "Artist:".truecolor(126, 87, 194), item.artist_name);
-        println!("{:<11} {}", "Album:".truecolor(121, 134, 203), item.album_title);
-        enable_raw_mode()?;
+
+        println!("{}\r", dtf.truecolor(90, 91, 103));
+        println!("{:<11} {}\r", "Song:".truecolor(146, 49, 176), item.track);
+        println!("{:<11} {}\r", "Artist:".truecolor(126, 87, 194), item.artist_name);
+        println!("{:<11} {}\r", "Album:".truecolor(121, 134, 203), item.album_title);
+
         let progress_bar_len = if total_seconds > 0 {
             total_seconds as u64
         } else {
@@ -105,6 +104,7 @@ impl Progress<'static> for Bar<'static> {
             .with_style(progress_bar_style)
             .with_position(0);
 
+        // self.mutex_progress_bar.lock().unwrap().replace(prog_bar);
         PROGRESS_BAR.lock().unwrap().replace(prog_bar);
         Ok(())
     }
@@ -115,12 +115,12 @@ impl Progress<'static> for Bar<'static> {
         total_seconds: Option<u64>,
     ) -> String {
         let humanized_elapsed_duration =
-            self.humanize_seconds_to_minutes_and_seconds(elapsed_seconds);
+            format_duration!(elapsed_seconds);
 
         if let Some(total_seconds) = total_seconds {
             if total_seconds != u64::MAX {
                 let humanized_total_duration =
-                    self.humanize_seconds_to_minutes_and_seconds(total_seconds);
+                    format_duration!(total_seconds);
                 return format!("{humanized_elapsed_duration} / {humanized_total_duration}");
             }
         }
@@ -129,6 +129,7 @@ impl Progress<'static> for Bar<'static> {
 
     fn get_progress_bar_current_position(&self) -> Duration {
         PROGRESS_BAR.lock().unwrap().to_owned().unwrap().eta()
+        // self.mutex_progress_bar.lock().unwrap().to_owned().unwrap().eta()
     }
 
     fn enable_tick(&self) {
@@ -158,10 +159,6 @@ impl Progress<'static> for Bar<'static> {
             .disable_steady_tick();
     }
 
-    fn humanize_seconds_to_minutes_and_seconds(&self, seconds: u64) -> String {
-        format!("{:02}:{:02}", seconds / 60, seconds % 60)
-    }
-
     /// Increase elapsed seconds in progress bar by 1 every second.
     async fn tick_progress_bar_progress(mut self) {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -180,19 +177,31 @@ impl Progress<'static> for Bar<'static> {
 
     fn enable_spinner(&self) {
         if *PROG.lock().unwrap() {
-            let a = PROGRESS_BAR.lock().unwrap();
-            a.to_owned()
-                .unwrap()
-                .enable_steady_tick(Duration::from_millis(100));
-            *PARK.lock().unwrap() = false;
+            match PROGRESS_BAR.lock() {
+                Ok(a) => match a.to_owned() {
+                    Some(a) => a.enable_steady_tick(Duration::from_millis(100)),
+                    None => {}
+                },
+                Err(e) => {
+                    println!("Error: {}", e);
+                }
+            }
         }
     }
 
     fn disable_spinner(&self) {
         if *PROG.lock().unwrap() {
-            let a = PROGRESS_BAR.lock().unwrap();
-            a.to_owned().unwrap().disable_steady_tick();
-            *PARK.lock().unwrap() = true;
+            match PROGRESS_BAR.lock() {
+                Ok(a) => {
+                    match a.to_owned() {
+                        Some(a) => a.disable_steady_tick(),
+                        None => {},
+                    }
+                },
+                Err(e) => {
+                    println!("Error: {}", e);
+                },
+            }
         }
     }
 }

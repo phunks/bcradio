@@ -1,16 +1,22 @@
 
-use crate::libbc::progress_bar::Bar;
-use crate::libbc::http_client::get_request;
-use crate::models::shared_data_models::{CurrentTrack, State, Track};
-use anyhow::Result;
-use chrono::Local;
 use std::clone::Clone;
 use std::collections::VecDeque;
+use std::io;
 use std::iter::Iterator;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use anyhow::Result;
+use chrono::Local;
 use tokio::io::copy;
 use async_std::stream::StreamExt;
+
+use crate::debug_println;
+use crate::models::bc_discover_index::{Element, PostData};
+use crate::libbc::progress_bar::{Bar, Progress};
+use crate::libbc::http_client::get_request;
+use crate::models::shared_data_models::{CurrentTrack, State, Track};
 
 #[derive(Default, Debug)]
 pub struct SharedState {
@@ -40,6 +46,7 @@ impl SharedState {
         if 0 < l { // add audio buffer
             for i in 0..l {
                 if !self.exists_track_buffer(0) {
+                    self.bar.enable_spinner();
                     let url = self.get_track_url(i);
                     let mut stream = get_request(url).await?.bytes_stream();
                     let mut buf: Vec<u8> = Vec::new();
@@ -47,32 +54,19 @@ impl SharedState {
                     while let Some(resp) = stream.next().await {
                         copy(&mut resp?.as_ref(), &mut buf).await?;
                     };
-                    self.set_track_buffer(i, buf);
+                    use std::time::Instant; //debug
+                    let start = Instant::now(); //debug
+                    let duration = mp3_duration::from_read(&mut io::Cursor::new(buf.clone())).unwrap();
+                    debug_println!("Debug mp3: {:?}\r", start.elapsed()); //debug
+                    debug_println!("{:?}\r", duration);
+                    self.set_track_buffer(i, buf, duration);
+                    self.bar.disable_spinner();
                 }
                 if i > 1 { break; }
             }
         }
+
         Ok(())
-    }
-
-    pub fn set_random_pagination(&self, mut pages: VecDeque<usize>) {
-        let mut lock = self.state.lock().unwrap();
-        lock.player.rnd_pages.append(&mut pages);
-    }
-
-    pub fn get_rnd_pages(&self, pos: usize) -> usize {
-        let lock = self.state.lock().unwrap();
-        lock.player.rnd_pages[pos]
-    }
-
-    pub fn get_random_page_list_length(&self) -> usize {
-        let lock = self.state.lock().unwrap();
-        lock.player.rnd_pages.len()
-    }
-
-    pub fn drain_rnd_page_list_element(&self, i: usize) {
-        let mut lock = self.state.lock().unwrap();
-        lock.player.rnd_pages.drain(..i);
     }
 
     pub fn append_tracklist(&self, mut playlist: VecDeque<Track>) {
@@ -85,9 +79,29 @@ impl SharedState {
         lock.player.tracks.push_front(playlist);
     }
 
-    pub fn set_total_count(&self, total_count: i64) {
+    pub fn clear_all_tracklist(&self) {
+        debug_println!("clear_all_tracklist\r");
         let mut lock = self.state.lock().unwrap();
-        lock.player.total_count = total_count;
+        lock.player.tracks.clear();
+    }
+
+    pub fn set_next_postdata(&self, post_data: PostData) {
+        let mut lock = self.state.lock().unwrap();
+        lock.player.post_data = post_data;
+    }
+
+    pub fn save_genres(&self, genres: Vec<Element>) {
+        let mut lock = self.state.lock().unwrap();
+        lock.player.genres = genres;
+    }
+
+    pub fn get_genres(&self) -> Vec<Element> {
+        let lock = self.state.lock().unwrap();
+        lock.player.genres.to_owned()
+    }
+
+    pub fn next_post(&self) -> PostData {
+        self.state.lock().unwrap().player.post_data.to_owned()
     }
 
     pub fn get_buffer_set_queue_length(&self) -> usize {
@@ -99,9 +113,10 @@ impl SharedState {
             .count()
     }
 
-    pub fn set_track_buffer(&self, pos: usize, buf: Vec<u8>) {
+    pub fn set_track_buffer(&self, pos: usize, buf: Vec<u8>, duration: Duration) {
         let mut lock = self.state.lock().unwrap();
         lock.player.tracks[pos].buffer = buf;
+        lock.player.tracks[pos].duration = duration.as_secs_f32();
     }
 
     pub fn exists_track_buffer(&self, pos: usize) -> bool {
@@ -142,8 +157,8 @@ impl SharedState {
         lock.player.current_track.album_title = track.album_title;
         lock.player.current_track.band_id = track.band_id;
         lock.player.current_track.artist_name = track.artist_name;
-        lock.player.current_track.genre_text = track.genre_text;
         lock.player.current_track.play_date = Local::now();
+        lock.player.current_track.results = track.results;
     }
 
     pub fn get_current_track_info(&self) -> CurrentTrack {

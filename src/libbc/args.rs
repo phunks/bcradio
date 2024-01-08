@@ -1,9 +1,11 @@
 use std::{cmp, io};
+use std::fmt::{Debug, Display};
 
 use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use crossterm::execute;
+use crossterm::terminal::enable_raw_mode;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -11,6 +13,8 @@ use ratatui::Terminal;
 use ratatui::widgets::Borders;
 use tui_textarea::{Key, TextArea};
 use tui_textarea::Input;
+use crate::libbc::progress_bar::Progress;
+
 
 const ABOUT: &str = "
 A command line music player for https://bandcamp.com
@@ -18,9 +22,11 @@ A command line music player for https://bandcamp.com
 [Key]                [Description]
  0-9                  adjust volume
  h                    help
+ i                    play info
  s                    free word search
  f                    favorite search
  n                    play next
+ m                    menu
  p                    play/pause
  Q                    graceful kill
  Ctrl+C               exit";
@@ -34,7 +40,7 @@ pub fn show_help() -> Result<()> {
     let mut stdout = stdout.lock();
 
     enable_raw_mode()?;
-    crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture,)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture,)?;
 
     let backend = CrosstermBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
@@ -66,12 +72,12 @@ pub fn show_help() -> Result<()> {
         }
     }
 
-    crossterm::execute!(
+    execute!(
         term.backend_mut(),
         LeaveAlternateScreen,
         DisableMouseCapture
     )?;
-    disable_raw_mode()?;
     term.show_cursor()?;
     Ok(())
 }
+

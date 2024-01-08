@@ -1,11 +1,11 @@
 mod macros;
 pub mod player;
-mod playlist;
-mod progress_bar;
-mod search;
+pub mod playlist;
+pub mod progress_bar;
+pub mod search;
 pub mod shared_data;
 pub mod sink;
-mod stream_adapter;
+pub mod stream_adapter;
 pub mod stream_decoder;
 pub mod terminal;
 pub mod http_client;

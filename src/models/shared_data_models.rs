@@ -3,10 +3,11 @@ use std::marker::PhantomData;
 
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
+use crate::models::bc_discover_index::{Element, PostData};
+use crate::models::bc_discover_json::Results;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Track {
-    pub genre_text: String,
     pub album_title: String,
     pub artist_name: String,
     pub art_id: Option<i64>,
@@ -15,12 +16,12 @@ pub struct Track {
     pub duration: f32,
     pub track: String,
     pub buffer: Vec<u8>,
+    pub results: Option<Results>,
 }
 
 impl Clone for Track {
     fn clone(&self) -> Track {
         Track {
-            genre_text: self.genre_text.clone(),
             album_title: self.album_title.clone(),
             artist_name: self.artist_name.clone(),
             art_id: self.art_id,
@@ -29,6 +30,7 @@ impl Clone for Track {
             duration: self.duration,
             track: self.track.clone(),
             buffer: self.buffer.clone(),
+            results: self.results.clone(),
         }
     }
 }
@@ -48,6 +50,7 @@ pub struct CurrentTrack {
     pub artist_name: String,
     pub genre_text: String,
     pub play_date: DateTime<Local>,
+    pub results: Option<Results>,
 }
 
 impl Clone for CurrentTrack {
@@ -60,6 +63,7 @@ impl Clone for CurrentTrack {
             artist_name: self.artist_name.clone(),
             genre_text: self.genre_text.clone(),
             play_date: self.play_date,
+            results: self.results.clone(),
         }
     }
 }
@@ -90,6 +94,6 @@ impl Clone for ServerInfo {
 pub struct PlaylistInfo {
     pub current_track: CurrentTrack,
     pub tracks: VecDeque<Track>,
-    pub total_count: i64,
-    pub rnd_pages: VecDeque<usize>,
+    pub post_data: PostData,
+    pub genres: Vec<Element>,
 }

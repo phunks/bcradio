@@ -6,15 +6,16 @@ use crate::models::shared_data_models::Track;
 use crate::models::search_models::{SearchJsonRequest, SearchJsonResponse, TrackInfo};
 use anyhow::Result;
 use async_trait::async_trait;
+use crossterm::*;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::widgets::Borders;
 use ratatui::Terminal;
-use scraper::{Html, Selector};
+use scraper::{Element, Html, Selector};
 
 use std::cmp;
 use std::io;
@@ -73,7 +74,6 @@ impl Search for SharedState {
         if let Ok(track_info) = simd_json::serde::from_refowned_value::<Vec<TrackInfo>>(t) {
             for i in track_info.iter() {
                 let t = Track {
-                    genre_text: String::new(),
                     album_title: album_title.to_owned(),
                     artist_name: artist_name.to_owned(),
                     art_id: *art_id,
@@ -82,6 +82,7 @@ impl Search for SharedState {
                     duration: i.duration,
                     track: i.title.to_owned().unwrap().to_owned(),
                     buffer: vec![],
+                    results: None,
                 };
                 #[allow(clippy::if_same_then_else)]
                 if bid.eq(band_id) {
@@ -95,17 +96,12 @@ impl Search for SharedState {
     }
 
     async fn search(&self, search_type: &str, mut search_text: Option<String>) -> Result<()> {
-        self.bar.enable_spinner();
         if search_text.is_none() {
             search_text = Option::from(self.get_current_track_info().artist_name);
         }
 
-        #[cfg(not(debug))]
         let url =
             String::from("https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic");
-        #[cfg(debug)]
-        let url =
-            String::from("http://localhost:8080/api/bcsearch_public_api/1/autocomplete_elastic");
         let search_json_req = SearchJsonRequest {
             search_text: search_text.to_owned().unwrap(),
             search_filter: String::from(search_type),
@@ -122,6 +118,7 @@ impl Search for SharedState {
         }
 
         let url_list = v.iter().map(|s| s.to_string()).collect();
+        self.bar.enable_spinner();
         let r = match search_type {
             "t" => { // track search
                 self.to_owned()
@@ -143,9 +140,9 @@ impl Search for SharedState {
             }
             _ => Ok(Vec::new()),
         };
+        self.bar.disable_spinner();
 
         for i in r? { self.push_front_tracklist(i) }
-        self.bar.disable_spinner();
         Ok(())
     }
 
@@ -154,10 +151,11 @@ impl Search for SharedState {
         let mut stdout = stdout.lock();
 
         enable_raw_mode()?;
-        crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
         let backend = CrosstermBackend::new(stdout);
         let mut term = Terminal::new(backend)?;
         let mut textarea = TextArea::default();
+
         textarea.set_block(
             ratatui::widgets::block::Block::default()
                 .borders(Borders::NONE)
@@ -176,21 +174,24 @@ impl Search for SharedState {
             })?;
             match crossterm::event::read()?.into() {
                 Input {
-                    key: Key::Enter, ..
+                    key: Key::Enter,
+                    ..
                 } => break,
-                Input { key: Key::Esc, .. } => break,
+                Input {
+                    key: Key::Esc,
+                    ..
+                } => break,
                 input => {
                     textarea.input(input);
                 }
             }
         }
 
-        crossterm::execute!(
+        execute!(
             term.backend_mut(),
             LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
-        disable_raw_mode()?;
+            DisableMouseCapture)?;
+
         term.show_cursor()?;
         Ok(if !textarea.lines()[0].is_empty() {
             Some(textarea.lines()[0].to_owned())
@@ -199,3 +200,4 @@ impl Search for SharedState {
         })
     }
 }
+

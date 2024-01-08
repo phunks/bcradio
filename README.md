@@ -2,7 +2,7 @@
 A command line music player for https://bandcamp.com, written in Rust.
 
 
-![Screenshot](./.github/images/bcradio_play_windows.png)
+![Screenshot](./.github/images/bcradio_play_osx.png)
 
 ### ⚠ About building and running on Linux 🐧
 
@@ -28,11 +28,13 @@ Options:
   
 [Key]                [Description]
  0-9                  adjust volume
- h                    print help
+ h                    help
+ i                    play info
  s                    free word search
  f                    favorite search
  n                    play next
- p                    play / pause
+ m                    menu
+ p                    play/pause
  Q                    graceful kill
  Ctrl+C               exit
 ```

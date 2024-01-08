@@ -1,13 +1,13 @@
 
 use std::ops::Deref;
-use std::process;
-use anyhow::Result;
+use anyhow::{Error, Result};
 use clap::Parser;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::event::KeyEventKind;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use libbc::player::{PARK, RXTX};
 
+use crate::models::bc_error::BcradioError;
 use crate::libbc::args::Args;
 use crate::libbc::player;
 use crate::libbc::shared_data::SharedState;
@@ -42,22 +42,20 @@ async fn start_playing() -> Result<()> {
     let hdl = tokio::spawn(<SharedState as player::Player>::player_thread());
     loop {
         if *PARK.lock().unwrap() {
+
             enable_raw_mode()?;
             match event::read()? {
                 Event::Key(KeyEvent {
                                code: KeyCode::Char('c'),
                                modifiers: KeyModifiers::CONTROL, ..
                            }) => {
-                    #[cfg(windows)]
-                    terminal::asio_kill();
-                    disable_raw_mode()?;
-                    process::exit(0)
+                    terminal::quit(Error::from(BcradioError::OperationInterrupted));
                 },
                 Event::Key(e) => {
                     if e.kind == KeyEventKind::Press {
                         if let KeyCode::Char(c) = e.code {
                             match c {
-                                's' | 'h' => {
+                                's' | 'h' | 'm' | 'i' => {
                                     *PARK.lock().unwrap() = false;
                                     RXTX.deref().0.send(c).await?
                                 },
@@ -79,3 +77,4 @@ async fn start_playing() -> Result<()> {
     disable_raw_mode()?;
     Ok(())
 }
+
