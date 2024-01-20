@@ -136,6 +136,7 @@ where
                         if let Some(answer) = self.submit()? {
                             break answer;
                         }
+
                         ActionResult::NeedsRedraw
                     }
                     Action::Cancel => {

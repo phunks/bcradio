@@ -76,6 +76,8 @@ pub struct Select<'a, T> {
 
     /// Options displayed to the user.
     pub options: Vec<T>,
+    
+    pub raw_return: bool,
 
     /// Help message to be presented to the user.
     pub help_message: Option<&'a str>,
@@ -204,6 +206,7 @@ where
         Self {
             message,
             options,
+            raw_return: false,
             help_message: Self::DEFAULT_HELP_MESSAGE,
             page_size: Self::DEFAULT_PAGE_SIZE,
             vim_mode: Self::DEFAULT_VIM_MODE,
@@ -297,6 +300,11 @@ where
     /// and still support NO_COLOR, you will have to do this on your end.
     pub fn with_render_config(mut self, render_config: RenderConfig<'a>) -> Self {
         self.render_config = render_config;
+        self
+    }
+
+    pub fn with_raw_return(mut self, raw: bool) -> Self {
+        self.raw_return = raw;
         self
     }
 

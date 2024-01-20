@@ -205,8 +205,13 @@ where
     fn submit(&mut self) -> InquireResult<Option<ListOption<T>>> {
         let answer = match self.has_answer_highlighted() {
             true => Some(self.get_final_answer()),
-            // false => None,
-            false => Some(self.get_answer()),
+            false => {
+                if self.config.raw_return {
+                    Some(self.get_answer())
+                } else {
+                    None
+                }
+            },
         };
 
         Ok(answer)

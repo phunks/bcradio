@@ -154,8 +154,10 @@ impl PlayList for SharedState {
 
             if !skip {
                 genre_ans = Select::new("genre?",
-                            g.iter().map(|x| x.label.clone()).collect()
-                ).prompt();
+                            g.iter().map(|x| x.label.clone()).collect())
+                    .with_raw_return(true)
+                    .prompt();
+
                 match genre_ans {
                     Ok(ref choice) => self.set_genre(choice),
                     Err(e) => match e {
@@ -188,7 +190,9 @@ impl PlayList for SharedState {
                         },
                         2.. => {
                             let ans = Select::new("which genre?",
-                                parent_labels).prompt();
+                                    parent_labels)
+                                .with_raw_return(false)
+                                .prompt();
 
                             let ans = match ans {
                                 Ok(ref choice) => choice,
@@ -234,7 +238,9 @@ impl PlayList for SharedState {
                 })
             } else {
                 let subgenre_ans = Select::new("sub genre?",
-                        subgenres.iter().map(|x| x.label.clone()).collect()).prompt();
+                        subgenres.iter().map(|x| x.label.clone()).collect())
+                    .with_raw_return(false)
+                    .prompt();
 
                 match subgenre_ans {
                     Ok(ref choice) => self.set_subgenre(choice),
