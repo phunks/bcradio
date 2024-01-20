@@ -169,7 +169,7 @@ impl<'a, T> Answer<'_, T> for SelectPrompt<'a, T>
         let index = 0;
         let i = self.input.clone();
         let j = i.unwrap().clone().content().to_owned();
-        let b = String::from(j);
+        let b = String::from(j).to_ascii_lowercase();
         let a = b.into();
 
         ListOption::new(index, a)
