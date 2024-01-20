@@ -4,7 +4,7 @@ use crate::libbc::stream_adapter::StreamAdapter;
 use crate::libbc::http_client::post_request;
 use crate::models::shared_data_models::Track;
 use crate::models::search_models::{SearchJsonRequest, SearchJsonResponse, TrackInfo};
-use anyhow::Result;
+use anyhow::{Error, Result};
 use async_trait::async_trait;
 use crossterm::*;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
@@ -15,7 +15,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::widgets::Borders;
 use ratatui::Terminal;
-use scraper::{Element, Html, Selector};
+use scraper::{Html, Selector};
 
 use std::cmp;
 use std::io;
@@ -23,6 +23,7 @@ use bytes::BytesMut;
 use simd_json::OwnedValue as Value;
 use simd_json::prelude::ValueAsScalar;
 use tui_textarea::{Input, Key, TextArea};
+use crate::models::bc_error::BcradioError;
 
 
 #[async_trait]
@@ -41,13 +42,14 @@ impl Search for SharedState {
         let html = String::from_utf8(res)?;
         let doc = Html::parse_document(&html);
 
-        let c = doc
+        let c = match doc
             .select(&Selector::parse("script[data-tralbum]").unwrap())
-            .next()
-            .unwrap()
-            .value()
-            .attr("data-tralbum")
-            .unwrap();
+            .next() {
+            None => return Err(Error::from(BcradioError::PhaseError)),
+            Some(a) => {
+                a.value().attr("data-tralbum").unwrap()
+            }
+        };
 
         let mut b = BytesMut::new();
         b.extend_from_slice(c.as_ref());

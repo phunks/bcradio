@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 
 [profile.release]
@@ -19,19 +19,19 @@ async-std = { version = "1.12.0" }
 async-stream = { version = "0.3.5" }
 async-trait = { version = "0.1.77" }
 chrono = { version = "0.4.31"}
-clap = { version = "4.4.13", features = ["derive"] }
+clap = { version = "4.4.18", features = ["derive"] }
 colored = { version = "2.1.0" }
-console = { version = "0.15.7" }
 cpal = { version = "0.15.2", features = ["asio"] }
-crossbeam = { version = "0.8.2" }
-crossbeam-channel = { version = "0.5.10" }
-crossbeam-utils = { version = "0.8.18" }
+crossbeam = { version = "0.8.4" }
+crossbeam-channel = { version = "0.5.11" }
+crossbeam-utils = { version = "0.8.19" }
 crossterm = { version = "0.27.0" }
 flume = { version = "0.11.0" }
 futures = { version = "0.3.30" }
 http = { version = "1.0.0" }
 indicatif = { version = "0.17.7" }
-inquire = { version = "0.6.2" }
+#inquire = { version = "0.6.2" }
+inquire = { path = "./inquire" }
 lazy_static = { version = "1.4.0" }
 lock_api = { version = "0.4.11" }
 minimp3 = { package = "minimp3_fixed", version = "0.5.4", features = ["async_tokio"] }
@@ -43,7 +43,7 @@ ratatui = { version = "0.25.0" }
 reqwest = { version = "0.11.23", default-features = false, features = ["trust-dns", "blocking", "json", "stream", "gzip", "rustls-tls-native-roots"] }
 rodio = { version = "0.17.3" }
 scraper = { version = "0.18.1" }
-serde = { version = "1.0.194", features = ["derive"] }
+serde = { version = "1.0.195", features = ["derive"] }
 serde_json = { version = "1.0.111" }
 slice-ring-buffer = { version = "0.3.3" }
 symphonia = { version = "0.5.3" }
@@ -55,12 +55,14 @@ ctrlc = { version = "3.4.2" }
 thiserror = { version = "1.0.56" }
 curl = { version = "0.4.44", features = ["http2"] }
 async-curl = { version = "0.2.4" }
-simd-json = { version = "0.13.4" }
+simd-json = { version = "0.13.8" }
 rev_buf_reader = { version = "0.3.0" }
 bytes = { version = "1.5.0" }
 flate2 = { version = "1.0.28" }
 futures-core = { version = "0.3.30" }
 miniz_oxide = { version = "0.7.1" }
+regex = "1.10.2"
+
 
 [dev-dependencies]
 env_logger = { version = "0.10.1" }

@@ -22,7 +22,7 @@ use crate::models::shared_data_models::{CurrentTrack, State, Track};
 pub struct SharedState {
     pub state: Arc<Mutex<State>>,
     pub bar: Bar<'static>,
-    pub phantom: PhantomData<&'static ()>,
+    phantom: PhantomData<&'static ()>,
 }
 
 impl Clone for SharedState {
@@ -90,14 +90,33 @@ impl SharedState {
         lock.player.post_data = post_data;
     }
 
-    pub fn save_genres(&self, genres: Vec<Element>) {
+    pub fn save_genres(&self, genres: Vec<Element>, subgenres: Vec<Element>) {
         let mut lock = self.state.lock().unwrap();
         lock.player.genres = genres;
+        lock.player.subgenres = subgenres;
     }
 
-    pub fn get_genres(&self) -> Vec<Element> {
+    pub fn get_genres(&self) -> (Vec<Element>, Vec<Element>) {
         let lock = self.state.lock().unwrap();
-        lock.player.genres.to_owned()
+        (lock.player.genres.to_owned(), lock.player.subgenres.to_owned())
+    }
+
+    pub fn set_genre(&self, genre: &String) {
+        let mut lock = self.state.lock().unwrap();
+        lock.player.genre = genre.clone();
+    }
+    pub fn get_genre(&self) -> String {
+        let lock = self.state.lock().unwrap();
+        lock.player.genre.to_owned()
+    }
+
+    pub fn set_subgenre(&self, subgenre: &String) {
+        let mut lock = self.state.lock().unwrap();
+        lock.player.subgenre = subgenre.clone();
+    }
+    pub fn get_subgenre(&self) -> String {
+        let lock = self.state.lock().unwrap();
+        lock.player.subgenre.to_owned()
     }
 
     pub fn next_post(&self) -> PostData {
@@ -132,21 +151,6 @@ impl SharedState {
     pub fn get_track_url(&self, pos: usize) -> String {
         let lock = self.state.lock().unwrap();
         lock.player.tracks[pos].url.to_owned()
-    }
-
-    pub fn set_selected_url(&self, url: String) {
-        let mut lock = self.state.lock().unwrap();
-        lock.server.select_url.push_front(url);
-    }
-
-    pub fn get_selected_url(&self) -> String {
-        let lock = self.state.lock().unwrap();
-        lock.server.select_url[0].to_owned()
-    }
-
-    pub fn get_selected_url_list_length(&self) -> usize {
-        let lock = self.state.lock().unwrap();
-        lock.server.select_url.len()
     }
 
     pub fn move_to_current_track(&self) {

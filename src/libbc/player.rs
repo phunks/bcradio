@@ -66,7 +66,9 @@ impl Player<'static> for SharedState {
         let sink = Sink::try_new(&stream_handle.stream_handle.unwrap())?;
 
         loop {
-            state.fill_playlist()?;
+            if sink.empty() {
+                state.fill_playlist()?;
+            }
             state.enqueue_truck_buffer().await?;
             play(&state, &sink).await?;
 
@@ -185,7 +187,7 @@ impl Player<'static> for SharedState {
 
         match current_track.clone().results {
             Some(g) => {
-                let genres = self.get_genres();
+                let genres = self.get_genres().0;
                 let genre = genres
                     .iter()
                     .cloned()

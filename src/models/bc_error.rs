@@ -12,4 +12,6 @@ pub enum BcradioError {
     Quit,
     #[error("Could not resolve host")]
     CouldntResolveHost,
+    #[error("Phase error")]
+    PhaseError,
 }

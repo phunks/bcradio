@@ -13,7 +13,6 @@ use ratatui::Terminal;
 use ratatui::widgets::Borders;
 use tui_textarea::{Key, TextArea};
 use tui_textarea::Input;
-use crate::libbc::progress_bar::Progress;
 
 
 const ABOUT: &str = "

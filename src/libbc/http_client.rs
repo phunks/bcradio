@@ -29,6 +29,7 @@ impl Client {
 
         let mut easy = Easy2::new(Collector(Vec::new()));
         easy.get(true).unwrap();
+        easy.follow_location(true).unwrap();
         easy.url(&url).unwrap();
 
         let mut list = List::new();
@@ -42,7 +43,6 @@ impl Client {
         easy.perform().expect("Couldn't connect to server");
         let v = easy.get_ref().0.to_vec();
 
-        //https://stackoverflow.com/questions/9050260/what-does-a-zlib-header-look-like
         self.res = self.decoder(v);
         self.status = easy.response_code();
 
@@ -60,8 +60,8 @@ impl Client {
 
         let mut list = List::new();
         list.append("Accept: */*")?;
-        // list.append("Accept-Encoding: gzip;q=0.4, deflate, br")?;
-        // list.append("Content-Encoding: gzip")?;
+        list.append("Accept-Encoding: gzip;q=0.4, deflate, br")?;
+        list.append("Content-Encoding: gzip")?;
         match serde_json::to_string(&post_data) {
             Ok(body) => {
                 debug_println!("debug: post_data {}\r", body);
@@ -83,6 +83,7 @@ impl Client {
         Ok(self)
     }
 
+    //https://stackoverflow.com/questions/9050260/what-does-a-zlib-header-look-like
     fn decoder(&self, v: Vec<u8>) -> Vec<u8> {
         match v[0] {
             b'\x78' => {

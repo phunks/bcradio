@@ -31,6 +31,7 @@ pub(crate) trait Progress<'a> {
     fn disable_tick(&self);
     fn enable_tick_on_screen(&self);
     fn disable_tick_on_screen(&self);
+    fn destroy(&self);
     async fn tick_progress_bar_progress(mut self);
     async fn run(mut self) -> JoinHandle<()>;
     fn enable_spinner(&self);
@@ -158,6 +159,19 @@ impl Progress<'static> for Bar<'static> {
             .unwrap()
             .disable_steady_tick();
     }
+
+    fn destroy(&self) {
+        match PROGRESS_BAR.lock() {
+            Ok(a) => match a.to_owned() {
+                Some(a) => a.finish(),
+                None => {}
+            },
+            Err(e) => {
+                println!("Error: {}", e);
+            }
+        }
+    }
+
 
     /// Increase elapsed seconds in progress bar by 1 every second.
     async fn tick_progress_bar_progress(mut self) {

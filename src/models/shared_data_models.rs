@@ -96,4 +96,7 @@ pub struct PlaylistInfo {
     pub tracks: VecDeque<Track>,
     pub post_data: PostData,
     pub genres: Vec<Element>,
+    pub subgenres: Vec<Element>,
+    pub genre: String,
+    pub subgenre: String,
 }

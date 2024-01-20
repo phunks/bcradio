@@ -1,8 +1,9 @@
 
 use std::ops::Deref;
+use std::time::Duration;
 use anyhow::{Error, Result};
 use clap::Parser;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, poll};
 use crossterm::event::KeyEventKind;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use libbc::player::{PARK, RXTX};
@@ -44,32 +45,34 @@ async fn start_playing() -> Result<()> {
         if *PARK.lock().unwrap() {
 
             enable_raw_mode()?;
-            match event::read()? {
-                Event::Key(KeyEvent {
-                               code: KeyCode::Char('c'),
-                               modifiers: KeyModifiers::CONTROL, ..
-                           }) => {
-                    terminal::quit(Error::from(BcradioError::OperationInterrupted));
-                },
-                Event::Key(e) => {
-                    if e.kind == KeyEventKind::Press {
-                        if let KeyCode::Char(c) = e.code {
-                            match c {
-                                's' | 'h' | 'm' | 'i' => {
-                                    *PARK.lock().unwrap() = false;
-                                    RXTX.deref().0.send(c).await?
-                                },
-                                'a'..='z' | '0'..='9' => RXTX.deref().0.send(c).await?,
-                                'Q' => {
-                                    RXTX.deref().0.send(c).await?;
-                                    break;
-                                },
-                                _ => {},
+            if poll(Duration::from_millis(200))? {
+                match event::read()? {
+                    Event::Key(KeyEvent {
+                                   code: KeyCode::Char('c'),
+                                   modifiers: KeyModifiers::CONTROL, ..
+                               }) => {
+                        terminal::quit(Error::from(BcradioError::OperationInterrupted));
+                    },
+                    Event::Key(e) => {
+                        if e.kind == KeyEventKind::Press {
+                            if let KeyCode::Char(c) = e.code {
+                                match c {
+                                    's' | 'h' | 'm' | 'i' => {
+                                        *PARK.lock().unwrap() = false;
+                                        RXTX.deref().0.send(c).await?
+                                    },
+                                    'a'..='z' | '0'..='9' => RXTX.deref().0.send(c).await?,
+                                    'Q' => {
+                                        RXTX.deref().0.send(c).await?;
+                                        break;
+                                    },
+                                    _ => {},
+                                }
                             }
                         }
-                    }
-                },
-                _ => {},
+                    },
+                    _ => {},
+                }
             }
         }
     }
