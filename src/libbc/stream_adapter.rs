@@ -46,13 +46,13 @@ impl<'a> StreamAdapter<'a> for SharedState {
         Ok(async {
             futures::stream::iter(url_list.into_iter())
                 .map(move |url| {
-                    let id = std::thread::current().id();
+                    let _id = std::thread::current().id();
 
                     tokio::task::spawn(async move {
                         debug_println!(
                             "-start fetch json: {}: {:?}\r",
                             url,
-                            id
+                            _id
                         );
                         let client: Client = Default::default();
                         let res = match client.get_curl_request(url.clone()) {
@@ -60,13 +60,13 @@ impl<'a> StreamAdapter<'a> for SharedState {
                             Err(err) => anyhow::bail!("Failed to get: {}: {}", url, err),
                         };
 
-                        let json = a(res.to_vec()?)
+                        let json = a(res.vec()?)
                             .await
                             .with_context(|| format!("Failed to parse info of page: {}", url))?;
                         debug_println!(
                             "-end fetch json: {}: {:?}\r",
                             url,
-                            id
+                            _id
                         );
 
                         Ok((url, json))

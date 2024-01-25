@@ -1,5 +1,6 @@
 use std::{cmp, io};
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
+use std::io::StdoutLock;
 
 use anyhow::Result;
 use clap::Parser;
@@ -34,7 +35,14 @@ A command line music player for https://bandcamp.com
 #[clap(author, version, about = ABOUT)]
 pub struct Args {}
 
-pub fn show_help() -> Result<()> {
+pub fn about() -> &'static str {
+    ABOUT
+}
+
+pub fn show_alt_term<T>(v: Vec<T>) -> Result<()>
+    where
+        T: Into<String> + Clone,
+{
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
 
@@ -44,18 +52,11 @@ pub fn show_help() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
     term.hide_cursor()?;
-    let mut textarea = TextArea::from(ABOUT.split('\n'));
+
+    let mut textarea = TextArea::from(v);
     textarea.set_block(ratatui::widgets::block::Block::default().borders(Borders::NONE));
 
-    term.draw(|f| {
-        const MIN_HEIGHT: usize = 13;
-        let height = cmp::max(textarea.lines().len(), MIN_HEIGHT) as u16;
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(height), Constraint::Min(0)].as_slice())
-            .split(f.size());
-        f.render_widget(textarea.widget(), chunks[0]);
-    })?;
+    draw(&mut term, textarea)?;
 
     loop {
         match crossterm::event::read()?.into() {
@@ -64,7 +65,7 @@ pub fn show_help() -> Result<()> {
                 ..
             } => break,
             Input {
-                key: Key::Char('h'),
+                key: Key::Char(_c), // any
                 ..
             } => break,
             Input { .. } => {}
@@ -80,3 +81,18 @@ pub fn show_help() -> Result<()> {
     Ok(())
 }
 
+pub fn draw(
+    term: &mut Terminal<CrosstermBackend<StdoutLock>>,
+    textarea: TextArea
+) -> Result<()> {
+    term.draw(|f| {
+        const MIN_HEIGHT: usize = 13;
+        let height = cmp::max(textarea.lines().len(), MIN_HEIGHT) as u16;
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(height), Constraint::Min(0)].as_slice())
+            .split(f.size());
+        f.render_widget(textarea.widget(), chunks[0]);
+    })?;
+    Ok(())
+}

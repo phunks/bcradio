@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.5.1"
+version = "0.5.3"
 edition = "2021"
 
 [profile.release]
@@ -62,7 +62,7 @@ flate2 = { version = "1.0.28" }
 futures-core = { version = "0.3.30" }
 miniz_oxide = { version = "0.7.1" }
 regex = "1.10.2"
-
+chrono-tz = { version = "0.8.5" }
 
 [dev-dependencies]
 env_logger = { version = "0.10.1" }

@@ -21,7 +21,7 @@ impl Clone for DiscoverJsonRequest {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Results {
     pub id: i64,
     pub title: String,
@@ -80,7 +80,7 @@ impl Clone for Results {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct FeaturedTrack {
     pub id: i64,
     pub title: String,

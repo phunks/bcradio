@@ -76,7 +76,8 @@ pub struct Select<'a, T> {
 
     /// Options displayed to the user.
     pub options: Vec<T>,
-    
+
+    /// raw return
     pub raw_return: bool,
 
     /// Help message to be presented to the user.
@@ -303,6 +304,7 @@ where
         self
     }
 
+    /// row return
     pub fn with_raw_return(mut self, raw: bool) -> Self {
         self.raw_return = raw;
         self

@@ -17,6 +17,7 @@ pub enum ActionResult {
 }
 
 impl ActionResult {
+    #[allow(dead_code)]
     pub fn merge(self, other: Self) -> Self {
         match (self, other) {
             (Self::NeedsRedraw, _) | (_, Self::NeedsRedraw) => Self::NeedsRedraw,

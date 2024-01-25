@@ -55,9 +55,9 @@ impl SharedState {
                         copy(&mut resp?.as_ref(), &mut buf).await?;
                     };
                     use std::time::Instant; //debug
-                    let start = Instant::now(); //debug
+                    let _start = Instant::now(); //debug
                     let duration = mp3_duration::from_read(&mut io::Cursor::new(buf.clone())).unwrap();
-                    debug_println!("Debug mp3: {:?}\r", start.elapsed()); //debug
+                    debug_println!("Debug mp3: {:?}\r", _start.elapsed()); //debug
                     debug_println!("{:?}\r", duration);
                     self.set_track_buffer(i, buf, duration);
                     self.bar.disable_spinner();
@@ -101,19 +101,21 @@ impl SharedState {
         (lock.player.genres.to_owned(), lock.player.subgenres.to_owned())
     }
 
-    pub fn set_genre(&self, genre: &String) {
+    pub fn set_genre(&self, genre: &str) {
         let mut lock = self.state.lock().unwrap();
-        lock.player.genre = genre.clone();
+        lock.player.genre = genre.to_owned();
     }
+    #[allow(dead_code)]
     pub fn get_genre(&self) -> String {
         let lock = self.state.lock().unwrap();
         lock.player.genre.to_owned()
     }
 
-    pub fn set_subgenre(&self, subgenre: &String) {
+    pub fn set_subgenre(&self, subgenre: &str) {
         let mut lock = self.state.lock().unwrap();
-        lock.player.subgenre = subgenre.clone();
+        lock.player.subgenre = subgenre.to_owned();
     }
+    #[allow(dead_code)]
     pub fn get_subgenre(&self) -> String {
         let lock = self.state.lock().unwrap();
         lock.player.subgenre.to_owned()
@@ -163,6 +165,8 @@ impl SharedState {
         lock.player.current_track.artist_name = track.artist_name;
         lock.player.current_track.play_date = Local::now();
         lock.player.current_track.results = track.results;
+        lock.player.current_track.genre = track.genre;
+        lock.player.current_track.subgenre = track.subgenre;
     }
 
     pub fn get_current_track_info(&self) -> CurrentTrack {

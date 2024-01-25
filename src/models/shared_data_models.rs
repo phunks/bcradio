@@ -5,6 +5,7 @@ use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 use crate::models::bc_discover_index::{Element, PostData};
 use crate::models::bc_discover_json::Results;
+use crate::models::search_models::ItemPage;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Track {
@@ -16,7 +17,9 @@ pub struct Track {
     pub duration: f32,
     pub track: String,
     pub buffer: Vec<u8>,
-    pub results: Option<Results>,
+    pub results: ResultsJson,
+    pub genre: Option<String>,
+    pub subgenre: Option<String>,
 }
 
 impl Clone for Track {
@@ -31,6 +34,8 @@ impl Clone for Track {
             track: self.track.clone(),
             buffer: self.buffer.clone(),
             results: self.results.clone(),
+            genre: self.genre.clone(),
+            subgenre: self.subgenre.clone(),
         }
     }
 }
@@ -39,6 +44,14 @@ impl Clone for Track {
 pub struct Link {
     pub subdomain: String,
     pub slug: String,
+}
+
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+pub enum ResultsJson {
+    Select(Box<Results>),
+    Search(Box<ItemPage>),
+    #[default]
+    None,
 }
 
 #[derive(Default, Debug)]
@@ -50,7 +63,9 @@ pub struct CurrentTrack {
     pub artist_name: String,
     pub genre_text: String,
     pub play_date: DateTime<Local>,
-    pub results: Option<Results>,
+    pub results: ResultsJson,
+    pub genre: Option<String>,
+    pub subgenre: Option<String>,
 }
 
 impl Clone for CurrentTrack {
@@ -64,6 +79,8 @@ impl Clone for CurrentTrack {
             genre_text: self.genre_text.clone(),
             play_date: self.play_date,
             results: self.results.clone(),
+            genre: self.genre.clone(),
+            subgenre: self.subgenre.clone(),
         }
     }
 }

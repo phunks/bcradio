@@ -66,7 +66,7 @@ impl Client {
             Ok(body) => {
                 debug_println!("debug: post_data {}\r", body);
                 list.append("Content-Type: application/json")?;
-                easy.post_fields_copy((&*body).as_ref())?;
+                easy.post_fields_copy((*body).as_ref())?;
             }
             Err(e) => return Err(Error::from(e)),
         }
@@ -99,15 +99,15 @@ impl Client {
             _ => v,
         }
     }
-
-    pub fn to_json(self) -> Result<Value> {
+    #[allow(dead_code)]
+    pub fn json(self) -> Result<Value> {
         let mut b = self.res;
         let bytes = b.as_mut_slice();
         let val = simd_json::from_slice(bytes)?;
         Ok(val)
     }
 
-    pub fn to_vec(self) -> Result<Vec<u8>> {
+    pub fn vec(self) -> Result<Vec<u8>> {
         Ok(self.res)
     }
     #[allow(dead_code)]
@@ -131,6 +131,7 @@ impl Handler for Collector {
 }
 
 use flate2::bufread::DeflateDecoder;
+#[allow(dead_code)]
 fn deflate_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
     let mut deflater = DeflateDecoder::new(&bytes[..]);
     let mut s: Vec<u8> = Vec::new();

@@ -11,7 +11,7 @@ use inquire::ui::{Attributes, Color, RenderConfig, Styled, StyleSheet};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use ratatui::widgets::Borders;
-use scraper::{Html, Selector};
+use scraper::Html;
 use tui_textarea::TextArea;
 use url::form_urlencoded;
 use regex::Regex;
@@ -19,13 +19,14 @@ use regex::Regex;
 use crate::libbc::player::PARK;
 use crate::libbc::http_client::Client;
 use crate::libbc::progress_bar::Progress;
+use crate::libbc::search::parse_doc;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::terminal;
 use crate::libbc::terminal::quit;
 use crate::models::bc_discover_index::{DiscoverIndexRequest, Element, PostData};
 use crate::models::bc_discover_json::{DiscoverJsonRequest, Results};
 use crate::models::bc_error::BcradioError;
-use crate::models::shared_data_models::Track;
+use crate::models::shared_data_models::{ResultsJson, Track};
 
 pub trait PlayList {
     fn ask(&self) -> Result<PostData>;
@@ -88,26 +89,18 @@ impl PlayList for SharedState {
         let buf = client
             .get_curl_request(url)
             .unwrap()
-            .to_vec()
+            .vec()
             .unwrap();
 
         let slice = String::from_utf8(buf).unwrap();
         let doc = Html::parse_document(&slice);
 
-        let c = match &Selector::parse("div[id='DiscoverApp']") {
-            Ok(c) => {
-                doc.select(c)
-                    .next()
-                    .unwrap()
-                    .value()
-                    .attr("data-blob")
-                    .unwrap()
-            }
-            Err(_) => return Err(Error::from(BcradioError::PhaseError)),
-        };
+        let c = parse_doc(doc,
+                          "div[id='DiscoverApp']",
+                          "data-blob")?;
 
         let json: Result<DiscoverIndexRequest, serde_json::Error> =
-                serde_json::from_slice(&mut bytes_mut(c.as_bytes())?);
+                serde_json::from_slice(&bytes_mut(c.as_bytes())?);
 
         match json {
             Ok(r) => Ok(r),
@@ -119,10 +112,10 @@ impl PlayList for SharedState {
         let url = String::from("https://bandcamp.com/api/discover/1/discover_web");
 
         let client: Client = Default::default();
-        let a = client.post_curl_request(url, post_data.clone()).unwrap().to_vec().unwrap();
+        let a = client.post_curl_request(url, post_data.clone()).unwrap().vec().unwrap();
 
         let json: Result<DiscoverJsonRequest, serde_json::Error> =
-                serde_json::from_slice(&mut bytes_mut(a.as_slice())?);
+                serde_json::from_slice(&bytes_mut(a.as_slice())?);
         let cursor = json.as_ref().unwrap().cursor.clone();
         self.set_next_postdata(PostData {
             cursor,
@@ -179,6 +172,13 @@ impl PlayList for SharedState {
                     let tags = genre_ans.as_ref().unwrap().clone();
 
                     return match parent_labels.len() {
+                        0 => {
+                            url = format!("https://bandcamp.com/discover?tags={}",
+                                                       url_escape(slug(tags.clone())));
+                            genre_ans = Ok(slug(tags.clone()));
+                            skip = true;
+                            continue
+                        }
                         1 => { // subgenre found, redirect
                             Ok(PostData {
                                 tag_norm_names: vec![
@@ -213,13 +213,6 @@ impl PlayList for SharedState {
                                 ..Default::default()
                             })
                         },
-                        0 => {
-                            url = String::from(format!("https://bandcamp.com/discover?tags={}",
-                                                                url_escape(slug(tags.clone()))));
-                            genre_ans = Ok(slug(tags.clone()));
-                            skip = true;
-                            continue
-                        }
                     }
                 },
             };
@@ -229,7 +222,7 @@ impl PlayList for SharedState {
                 .cloned()
                 .collect::<Vec<Element>>();
 
-            return if subgenres.len() == 0 {
+            return if subgenres.is_empty() {
                 Ok(PostData {
                     tag_norm_names: vec![
                         element.unwrap().slug.to_string()
@@ -283,13 +276,15 @@ impl PlayList for SharedState {
             track_list.append(&mut VecDeque::from([Track {
                 album_title: i.title.to_owned(),
                 artist_name: i.featured_track.band_name.to_owned(),
-                art_id: Option::from(i.item_image_id),
+                art_id: i.item_image_id,
                 band_id: i.band_id,
                 url: i.featured_track.stream_url.to_owned(),
                 duration: i.item_duration,
                 track: i.featured_track.title.to_owned(),
                 buffer: vec![],
-                results: Option::from(i.to_owned()),
+                results: ResultsJson::Select(Box::new(i.clone())),
+                genre: Some(self.get_genre().to_owned()),
+                subgenre: Some(self.get_subgenre().to_owned()),
             }]));
         }
         Ok(track_list)
@@ -303,7 +298,8 @@ impl PlayList for SharedState {
         execute!(
             stdout,
             EnterAlternateScreen,
-            EnableMouseCapture)?;
+            EnableMouseCapture,
+            cursor::MoveTo(0, 0))?;
 
         let backend = CrosstermBackend::new(stdout);
         let mut term = Terminal::new(backend)?;
@@ -313,9 +309,6 @@ impl PlayList for SharedState {
                 .borders(Borders::NONE)
                 .title("menu")
         );
-        execute!(
-            io::stdout(),
-            cursor::MoveTo(0, 0))?;
 
         match self.ask() {
             Ok(post_data) => {
@@ -332,7 +325,7 @@ impl PlayList for SharedState {
                                 LeaveAlternateScreen,
                                 DisableMouseCapture)?;
                             term.show_cursor()?;
-                            quit(Error::from(e))
+                            quit(e)
                     },
                     _ => {}
                 }
@@ -382,8 +375,7 @@ fn render_config() -> RenderConfig<'static> {
 
 fn pick_element(g: Vec<Element>, key: Result<&String, &InquireError>) -> Option<Element> {
     g.iter()
-        .cloned()
-        .find(|x| &x.label == key.unwrap())
+        .find(|&x| &x.label == key.unwrap()).cloned()
 }
 
 fn bytes_mut(a: &[u8]) -> Result<BytesMut> {
@@ -394,34 +386,34 @@ fn bytes_mut(a: &[u8]) -> Result<BytesMut> {
 
 fn url_escape(s: String) -> String {
     form_urlencoded::Serializer::new(String::new())
-        .append_key_only(&*s)
+        .append_key_only(&s)
         .finish()
 }
 
 fn slug(mut s: String) -> String {
     s = s.trim().parse().unwrap();
-    for i in vec![
-        (r"[?#].*", ""),
+    [(r"[?#].*", ""),
         (r"[\[\]@!$'\(\)\*\+,:;=]", ""),
         (r"[/ _~&]", "-"),
         (r"-+", "-"),
-    ] {
+    ].iter().for_each(|i| {
         let re = Regex::new(i.0).expect("Invalid regex");
-        s = re.replace_all(&*s.clone(), i.1).to_string();
-    }
+        s = re.replace_all(&s.clone(), i.1).to_string();
+    });
     s
 }
 
 #[cfg(test)]
 mod tests {
-    use scraper::{Html, Selector};
+    use scraper::Html;
     use crate::libbc::http_client::Client;
+    use crate::libbc::search::parse_doc;
     use crate::models::bc_discover_json::DiscoverJsonRequest;
 
     #[test]
     fn test_url_escape() {
         let s = String::from("all r&b/soul");
-        let s = super::url_escape(s);
+        let s = super::slug(s);
         assert_eq!(s, String::from("all-r-b-soul"));
     }
     #[test]
@@ -429,17 +421,13 @@ mod tests {
         let burl = String::from("http://localhost:8080/deep-house");
 
         let client: Client = Default::default();
-        let buf = client.get_curl_request(burl).unwrap().to_vec().unwrap();
+        let buf = client.get_curl_request(burl).unwrap().vec().unwrap();
         let slice = String::from_utf8(buf).unwrap();
         let doc = Html::parse_document(&slice);
 
-        let c = doc
-            .select(&Selector::parse("div[id='DiscoverApp']").unwrap())
-            .next()
-            .unwrap()
-            .value()
-            .attr("data-blob")
-            .unwrap();
+        let c = parse_doc(doc,
+                          "div[id='DiscoverApp']",
+                          "data-blob").unwrap();
         let json: Result<DiscoverJsonRequest, simd_json::Error>  = simd_json::from_reader(c.as_bytes());
         println!("test");
     }

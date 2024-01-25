@@ -30,8 +30,9 @@ pub struct Input {
     cursor: usize,
     length: usize,
 }
-
+#[allow(dead_code)]
 impl Input {
+
     pub fn new() -> Self {
         Self {
             content: String::new(),

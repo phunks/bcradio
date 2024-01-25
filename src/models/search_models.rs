@@ -38,14 +38,34 @@ pub struct SearchItem {
     pub name: String,
     pub band_id: i64,
     pub band_name: Option<String>,
+    pub album_name: Option<String>,
     pub item_url_root: Option<String>,
     pub item_url_path: Option<String>,
     pub img: Option<String>,
+    pub album_id: Option<i64>,
     tag_names: Option<String>,
     stat_params: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemPage {
+    pub current: Current,
+    pub artist: String,
+    pub trackinfo: Vec<TrackInfo>,
+    pub album_url: Option<String>,
+    #[serde(rename = "url")]
+    pub item_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Current {
+    pub title: String,
+    pub art_id: Option<i64>,
+    pub band_id: i64,
+    pub release_date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackInfo {
     id: i64,
     track_id: i64,
@@ -55,7 +75,7 @@ pub struct TrackInfo {
     encodings_id: i64,
     license_type: i32,
     private: Option<bool>,
-    track_num: i32,
+    track_num: Option<i32>,
     album_preorder: Option<bool>,
     unreleased_track: Option<bool>,
     title_link: Option<String>,
@@ -75,7 +95,7 @@ pub struct TrackInfo {
     video_poster_url: Option<String>,
     video_id: Option<i64>,
     video_caption: Option<String>,
-    video_featured: Option<String>,
+    video_featured: Option<i32>,
     alt_link: Option<String>,
     encoding_error: Option<String>,
     encoding_pending: Option<String>,
@@ -84,7 +104,7 @@ pub struct TrackInfo {
     track_license_id: Option<i64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mp3Url {
     #[serde(rename = "mp3-128")]
     pub(crate) mp3_128: Option<String>,

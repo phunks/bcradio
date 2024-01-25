@@ -162,13 +162,10 @@ impl Progress<'static> for Bar<'static> {
 
     fn destroy(&self) {
         match PROGRESS_BAR.lock() {
-            Ok(a) => match a.to_owned() {
-                Some(a) => a.finish(),
-                None => {}
-            },
-            Err(e) => {
-                println!("Error: {}", e);
-            }
+            Ok(a)
+                => if let Some(a) = a.to_owned() { a.finish() },
+            Err(e)
+                => println!("Error: {}", e),
         }
     }
 
@@ -192,13 +189,12 @@ impl Progress<'static> for Bar<'static> {
     fn enable_spinner(&self) {
         if *PROG.lock().unwrap() {
             match PROGRESS_BAR.lock() {
-                Ok(a) => match a.to_owned() {
-                    Some(a) => a.enable_steady_tick(Duration::from_millis(100)),
-                    None => {}
+                Ok(a)
+                    => if let Some(a) = a.to_owned() {
+                        a.enable_steady_tick(Duration::from_millis(100))
                 },
-                Err(e) => {
-                    println!("Error: {}", e);
-                }
+                Err(e)
+                    => println!("Error: {}", e),
             }
         }
     }
@@ -206,15 +202,12 @@ impl Progress<'static> for Bar<'static> {
     fn disable_spinner(&self) {
         if *PROG.lock().unwrap() {
             match PROGRESS_BAR.lock() {
-                Ok(a) => {
-                    match a.to_owned() {
-                        Some(a) => a.disable_steady_tick(),
-                        None => {},
-                    }
+                Ok(a)
+                    => if let Some(a) = a.to_owned() {
+                        a.disable_steady_tick()
                 },
-                Err(e) => {
-                    println!("Error: {}", e);
-                },
+                Err(e)
+                    => println!("Error: {}", e),
             }
         }
     }

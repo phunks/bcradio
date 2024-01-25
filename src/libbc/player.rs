@@ -1,4 +1,4 @@
-use std::{cmp, io};
+
 use std::ops::Deref;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -6,26 +6,19 @@ use std::time::Duration;
 use anyhow::Result;
 use async_channel::{Receiver, Sender, unbounded};
 use async_trait::async_trait;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use crossterm::{cursor, execute};
-use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use futures::future::abortable;
 use lazy_static::lazy_static;
-use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::Terminal;
-use ratatui::widgets::Borders;
 use rodio::Sink;
-use tui_textarea::{Input, Key, TextArea};
 
 use crate::format_duration;
-use crate::libbc::args;
+use crate::libbc::args::{about, show_alt_term};
 use crate::libbc::playlist::PlayList;
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::search::Search;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::sink::{Mp3, MusicStruct};
 use crate::libbc::terminal::quit;
+use crate::models::shared_data_models::ResultsJson;
 
 
 fn map_volume_to_rodio_volume(volume: u8) -> f32 {
@@ -41,8 +34,7 @@ lazy_static! {
 #[async_trait]
 pub trait Player<'a>: Send + Sync + 'static {
     async fn player_thread() -> Result<()>;
-    fn show_info(&self) -> Result<()>;
-    fn set_info(&self) -> Result<Vec<String>>;
+    fn track_info(&self) -> Result<Vec<String>>;
 }
 
 #[async_trait]
@@ -114,67 +106,7 @@ impl Player<'static> for SharedState {
         Ok(())
     }
 
-    fn show_info(&self) -> Result<()> {
-
-        let stdout = io::stdout();
-        let mut stdout = stdout.lock();
-
-        enable_raw_mode()?;
-        execute!(
-            stdout,
-            EnterAlternateScreen,
-            EnableMouseCapture,)?;
-
-        let backend = CrosstermBackend::new(stdout);
-        let mut term = Terminal::new(backend)?;
-
-        let v = self.set_info()?;
-        execute!(
-            io::stdout(),
-            cursor::MoveTo(0, 2))?;
-
-        let mut textarea = TextArea::from(v);
-        textarea.set_block(ratatui::widgets::block::Block::default().borders(Borders::NONE));
-        term.hide_cursor()?;
-
-        term.draw(|f| {
-            const MIN_HEIGHT: usize = 13;
-            let height = cmp::max(textarea.lines().len(), MIN_HEIGHT) as u16;
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(height),
-                    Constraint::Min(0)].as_slice())
-                .split(f.size());
-            f.render_widget(textarea.widget(), chunks[0]);
-        })?;
-
-        loop {
-            match crossterm::event::read()?.into() {
-                Input {
-                    key: Key::Esc,
-                    ..
-                } => break,
-                Input {
-                    key: Key::Char('i'),
-                    ..
-                } => break,
-                Input {
-                    ..
-                } => {}
-            }
-        }
-
-        execute!(
-            term.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture)?;
-
-        term.show_cursor()?;
-        Ok(())
-    }
-
-    fn set_info(&self) -> Result<Vec<String>> {
+    fn track_info(&self) -> Result<Vec<String>> {
         let current_track = self.get_current_track_info();
         let mut v = Vec::new();
 
@@ -185,15 +117,16 @@ impl Player<'static> for SharedState {
         v.append(&mut vec![format!(" {:>14} {}", "Duration:",
                                  format_duration!(current_track.clone().duration as u32))]);
 
-        match current_track.clone().results {
-            Some(g) => {
+        match current_track.results {
+            ResultsJson::Select(g) => {
                 let genres = self.get_genres().0;
                 let genre = genres
                     .iter()
-                    .cloned()
-                    .find(|x| x.id == g.band_genre_id as i64);
+                    .find(|&x| x.id == g.band_genre_id as i64).cloned();
 
-                v.append(&mut vec![format!(" {:>14} {}", "genre:", genre.unwrap().label)]);
+                v.append(&mut vec![format!(" {:>14} {}", "Category:", genre.unwrap().label)]);
+                v.append(&mut vec![format!(" {:>14} {}", "Genre:",    current_track.genre.clone().unwrap_or_default())]);
+                v.append(&mut vec![format!(" {:>14} {}", "Subgenre:", current_track.subgenre.clone().unwrap_or_default())]);
                 v.append(&mut vec![format!(" {:>14} {} {:3.2}", "Item Price:",
                                                                             g.item_currency,
                                                                             g.item_price )]);
@@ -204,12 +137,18 @@ impl Player<'static> for SharedState {
                 v.append(&mut vec![format!(" {:>14} {}", "Band URL:",  g.band_url)]);
                 v.append(&mut vec![format!(" {:>14} {}", "Item URL:",  g.item_url)]);
             },
-            None => {},
-        };
+            ResultsJson::Search(g) => {
+                v.append(&mut vec![format!(" {:>14} {}", "Release Date:", g.current.release_date)]);
+                v.append(&mut vec![format!(" {:>14} {}", "Album URL:",  g.album_url.unwrap_or_default())]);
+                v.append(&mut vec![format!(" {:>14} {}", "Item URL:",  g.item_url.unwrap_or_default())]);
+            },
+            ResultsJson::None => {},
+        }
 
         Ok(v)
     }
 }
+
 
 async fn play(state: &SharedState, sink: &Sink) -> Result<()> {
     if sink.empty() && state.get_buffer_set_queue_length() > 0 {
@@ -241,18 +180,20 @@ async fn search(state: &SharedState) -> Result<()> {
 
 fn help(state: &SharedState) -> Result<()> {
     state.bar.disable_tick_on_screen();
-    args::show_help()?;
-    state.bar.enable_tick_on_screen();
+    show_alt_term(about().split('\n')
+                      .collect::<Vec<&str>>())?;
 
+    state.bar.enable_tick_on_screen();
     *PARK.lock().unwrap() = true;
     Ok(())
 }
 
 fn info(state: &SharedState) -> Result<()> {
     state.bar.disable_tick_on_screen();
-    state.show_info()?;
-    state.bar.enable_tick_on_screen();
+    let v = state.track_info()?;
+    show_alt_term(v)?;
 
+    state.bar.enable_tick_on_screen();
     *PARK.lock().unwrap() = true;
     Ok(())
 }
