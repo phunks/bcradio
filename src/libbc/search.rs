@@ -17,7 +17,7 @@ use simd_json::OwnedValue as Value;
 use simd_json::prelude::{ValueAsScalar, ValueObjectAccess};
 use tui_textarea::{Input, Key, TextArea};
 
-use crate::libbc::args::draw;
+use crate::libbc::terminal::draw;
 use crate::models::bc_error::BcradioError;
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::shared_data::SharedState;
@@ -32,7 +32,7 @@ pub trait Search {
     async fn json_to_track(self, json: Value) -> Result<Vec<Track>>;
     async fn json_to_track_with_band_id(self, json: Value) -> Result<Vec<Track>>;
     async fn j2t(self, json: Value, fuzzy: bool) -> Result<Vec<Track>>;
-    async fn search(&self, search_type: &str, search_text: Option<String>) -> Result<()>;
+    async fn search(&self, search_text: Option<String>) -> Result<()>;
     fn show_input_panel(&self) -> Result<Option<String>>;
 }
 
@@ -78,7 +78,7 @@ impl Search for SharedState {
         let tracks: ItemPage = ItemPage {
             current: Current {
                 title: json["current"]["title"].to_string(),
-                art_id: json["current"]["art_id"].as_i64(),
+                art_id: json["art_id"].as_i64(),
                 band_id: json["current"]["band_id"].as_i64().unwrap(),
                 release_date: json["current"]["publish_date"].to_string(),
             },
@@ -115,7 +115,7 @@ impl Search for SharedState {
         Ok(v)
     }
 
-    async fn search(&self, search_type: &str, mut search_text: Option<String>) -> Result<()> {
+    async fn search(&self, mut search_text: Option<String>) -> Result<()> {
         if search_text.is_none() {
             search_text = Option::from(self.get_current_track_info().artist_name);
         }
@@ -124,7 +124,7 @@ impl Search for SharedState {
             String::from("https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic");
         let search_json_req = SearchJsonRequest {
             search_text: search_text.to_owned().unwrap(),
-            search_filter: String::from(search_type),
+            search_filter: String::from("t"),
             full_page: false,
             fan_id: None,
         };
@@ -139,30 +139,17 @@ impl Search for SharedState {
 
         let url_list = v.iter().map(|s| s.to_string()).collect();
         self.bar.enable_spinner();
-        let r = match search_type {
-            "t" => { // track search
-                self.to_owned()
-                    .bulk_url(
-                        url_list,
-                        <SharedState as Search>::html_to_json,
-                        <SharedState as Search>::json_to_track_with_band_id,
-                    )
-                    .await
-            }
-            "a" => { // album search
-                self.to_owned()
-                    .bulk_url(
-                        url_list,
-                        <SharedState as Search>::html_to_json,
-                        <SharedState as Search>::json_to_track,
-                    )
-                    .await
-            }
-            _ => Ok(Vec::new()),
-        };
+        let r = self.to_owned()
+            .bulk_url(
+                url_list,
+                <SharedState as Search>::html_to_json,
+                <SharedState as Search>::json_to_track,
+            )
+            .await.unwrap();
+
         self.bar.disable_spinner();
 
-        for i in r? { self.push_front_tracklist(i) }
+        for i in r { self.push_front_tracklist(i) }
         Ok(())
     }
 

@@ -161,6 +161,7 @@ impl SharedState {
         lock.player.current_track.duration = track.duration;
         lock.player.current_track.track = track.track;
         lock.player.current_track.album_title = track.album_title;
+        lock.player.current_track.art_id = track.art_id;
         lock.player.current_track.band_id = track.band_id;
         lock.player.current_track.artist_name = track.artist_name;
         lock.player.current_track.play_date = Local::now();
@@ -172,6 +173,11 @@ impl SharedState {
     pub fn get_current_track_info(&self) -> CurrentTrack {
         let lock = self.state.lock().unwrap();
         lock.player.current_track.to_owned()
+    }
+
+    pub fn get_current_art_id(&self) -> Option<i64> {
+        let lock = self.state.lock().unwrap();
+        lock.player.current_track.art_id
     }
 }
 

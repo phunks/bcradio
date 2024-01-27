@@ -11,13 +11,14 @@ use lazy_static::lazy_static;
 use rodio::Sink;
 
 use crate::format_duration;
-use crate::libbc::args::{about, show_alt_term};
+use crate::libbc::args::{about};
+use crate::libbc::http_client::Client;
 use crate::libbc::playlist::PlayList;
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::search::Search;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::sink::{Mp3, MusicStruct};
-use crate::libbc::terminal::quit;
+use crate::libbc::terminal::{quit, show_alt_term};
 use crate::models::shared_data_models::ResultsJson;
 
 
@@ -82,7 +83,7 @@ impl Player<'static> for SharedState {
                     }
                     'i' => { info(&state)? }
                     'm' => { menu(&state)? }
-                    'f' => { state.search("t", None).await? }
+                    'f' => { state.search(None).await? }
                     's' => { search(&state).await? }
                     'h' => { help(&state)? }
                     'Q' => { break; }
@@ -173,7 +174,7 @@ async fn search(state: &SharedState) -> Result<()> {
 
     *PARK.lock().unwrap() = true;
     if search_str.is_some() {
-        state.search("a", search_str).await?;
+        state.search(search_str).await?;
     }
     Ok(())
 }
@@ -181,7 +182,7 @@ async fn search(state: &SharedState) -> Result<()> {
 fn help(state: &SharedState) -> Result<()> {
     state.bar.disable_tick_on_screen();
     show_alt_term(about().split('\n')
-                      .collect::<Vec<&str>>())?;
+                      .collect::<Vec<&str>>(), None)?;
 
     state.bar.enable_tick_on_screen();
     *PARK.lock().unwrap() = true;
@@ -190,8 +191,18 @@ fn help(state: &SharedState) -> Result<()> {
 
 fn info(state: &SharedState) -> Result<()> {
     state.bar.disable_tick_on_screen();
+
     let v = state.track_info()?;
-    show_alt_term(v)?;
+
+    match state.get_current_art_id() {
+        Some(art_id) => {
+            let url = format!("https://f4.bcbits.com/img/a{}_16.jpg", art_id);
+            let client: Client = Default::default();
+            let img = client.get_curl_request(url).unwrap().vec()?;
+            show_alt_term(v, Option::from(img))?;
+        },
+        None => show_alt_term(v, None)?
+    }
 
     state.bar.enable_tick_on_screen();
     *PARK.lock().unwrap() = true;

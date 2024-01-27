@@ -58,6 +58,7 @@ pub enum ResultsJson {
 pub struct CurrentTrack {
     pub duration: f32,
     pub track: String,
+    pub art_id: Option<i64>,
     pub band_id: i64,
     pub album_title: String,
     pub artist_name: String,
@@ -73,6 +74,7 @@ impl Clone for CurrentTrack {
         CurrentTrack {
             duration: self.duration,
             track: self.track.clone(),
+            art_id: self.art_id,
             band_id: self.band_id,
             album_title: self.album_title.clone(),
             artist_name: self.artist_name.clone(),

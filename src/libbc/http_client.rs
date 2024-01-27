@@ -3,7 +3,7 @@ use std::io;
 use std::io::Read;
 use std::time::Duration;
 
-use curl::easy::{Easy2, Handler, List, WriteError};
+use curl::easy::{Easy2, Handler, HttpVersion, List, WriteError};
 use simd_json::owned::Value;
 use anyhow::{anyhow, Error, Result};
 use flate2::bufread;
@@ -31,7 +31,7 @@ impl Client {
         easy.get(true).unwrap();
         easy.follow_location(true).unwrap();
         easy.url(&url).unwrap();
-
+        easy.http_version(HttpVersion::V2TLS).unwrap();
         let mut list = List::new();
         list.append("Accept: application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*")?;
         list.append("Accept-Encoding: deflate, gzip")?;

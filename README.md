@@ -3,6 +3,7 @@ A command line music player for https://bandcamp.com, written in Rust.
 
 
 ![Screenshot](./.github/images/bcradio_play_osx.png)
+![Screenshot](./.github/images/bcradio_info_osx.png)
 
 ### ⚠ About building and running on Linux 🐧
 
@@ -12,6 +13,8 @@ In order to build and run this program on Linux, you need to install：
 
 - `libasound2-dev` on Debian / Ubuntu
 - `alsa-lib-devel` on Fedora
+
+If AAAA records are returned slowly in the information screen, add "options single-request-reopen" to resolve.conf. It is not my fault.
 
 ### ⚠ About running on Windows
 
