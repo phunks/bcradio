@@ -7,6 +7,8 @@ use crossterm::{cursor, execute};
 use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::prelude::Style;
+use ratatui::style::Stylize;
 use ratatui::Terminal;
 use ratatui::widgets::Borders;
 use tui_textarea::{CursorMove, Input, Key, TextArea};
@@ -108,7 +110,7 @@ pub fn show_alt_term<T>(v: Vec<T>, img: Option<Vec<u8>>) -> anyhow::Result<()>
     let backend = CrosstermBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
     let mut textarea = TextArea::from(v);
-
+    textarea.set_cursor_style(Style::new().hidden());
     textarea.set_block(ratatui::widgets::block::Block::default().borders(Borders::NONE));
 
     if f {

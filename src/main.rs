@@ -74,6 +74,8 @@ async fn start_playing() -> Result<()> {
                     _ => {},
                 }
             }
+        } else {
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
     hdl.await?.expect("player thread");
