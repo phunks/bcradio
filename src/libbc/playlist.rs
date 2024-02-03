@@ -374,8 +374,17 @@ fn render_config() -> RenderConfig<'static> {
 }
 
 fn pick_element(g: Vec<Element>, key: Result<&String, &InquireError>) -> Option<Element> {
-    g.iter()
-        .find(|&x| &x.label == key.unwrap()).cloned()
+    return match g.iter()
+        .find(|&x| &x.label == key.unwrap()).cloned() {
+        None => {
+            match g.iter()
+                .find(|&x| &x.slug == key.unwrap()).cloned() {
+                None => Option::from(g[0].clone()),
+                Some(a) => Option::from(a),
+            }
+        }
+        Some(a) => Option::from(a)
+    }
 }
 
 fn bytes_mut(a: &[u8]) -> Result<BytesMut> {
