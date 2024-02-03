@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 
 [profile.release]
@@ -38,7 +38,7 @@ minimp3-sys = { version = "0.3.2" }
 mp3-duration = { version = "0.1.10" }
 once_cell = { version = "1.19.0" }
 rand = { version = "0.8.5" }
-ratatui = { version = "0.25.0" }
+ratatui = { version = "0.26.0" }
 reqwest = { version = "0.11.23", default-features = false, features = ["trust-dns", "blocking", "json", "stream", "gzip", "rustls-tls-native-roots"] }
 rodio = { version = "0.17.3" }
 scraper = { version = "0.18.1" }
