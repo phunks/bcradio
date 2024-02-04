@@ -180,6 +180,8 @@ impl PlayList for SharedState {
                             continue
                         }
                         1 => { // subgenre found, redirect
+                            self.set_genre(&parent_labels[0]);
+                            self.set_subgenre(&tags);
                             Ok(PostData {
                                 tag_norm_names: vec![
                                     slug(parent_labels[0].clone()),
@@ -205,6 +207,8 @@ impl PlayList for SharedState {
                                     => panic!("inquire error: {:?}", other_error),
                                 }
                             };
+                            self.set_genre(&ans);
+                            self.set_subgenre(&tags);
                             Ok(PostData {
                                 tag_norm_names: vec![
                                     slug(ans.to_string()),
@@ -223,6 +227,7 @@ impl PlayList for SharedState {
                 .collect::<Vec<Element>>();
 
             return if subgenres.is_empty() {
+                self.set_subgenre("");
                 Ok(PostData {
                     tag_norm_names: vec![
                         element.unwrap().slug.to_string()
@@ -252,6 +257,7 @@ impl PlayList for SharedState {
 
                 let subgenre_element = pick_element(subgenres, subgenre_ans.as_ref());
                 if subgenre_element.clone().unwrap().slug.starts_with("all-") {
+                    self.set_subgenre("");
                     return Ok(PostData {
                         tag_norm_names: vec![
                             element.unwrap().slug.to_string()
