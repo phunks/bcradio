@@ -10,7 +10,7 @@ use futures::future::abortable;
 use lazy_static::lazy_static;
 use rodio::Sink;
 
-use crate::format_duration;
+use crate::{ceil, format_duration};
 use crate::libbc::args::{about};
 use crate::libbc::http_client::Client;
 use crate::libbc::playlist::PlayList;
@@ -83,7 +83,7 @@ impl Player<'static> for SharedState {
                     }
                     'i' => { info(&state)? }
                     'm' => { menu(&state)? }
-                    'f' => { state.search(None).await? }
+                    'f' => { state.search(None)? }
                     's' => { search(&state).await? }
                     'h' => { help(&state)? }
                     'Q' => { break; }
@@ -116,7 +116,7 @@ impl Player<'static> for SharedState {
         v.append(&mut vec![format!(" {:>14} {}", "Album:",  current_track.album_title)]);
         v.append(&mut vec![format!(" {:>14} {}", "Song:",   current_track.track)]);
         v.append(&mut vec![format!(" {:>14} {}", "Duration:",
-                                 format_duration!(current_track.clone().duration as u32))]);
+                                 format_duration!(ceil!(current_track.clone().duration, 1.0) as u32))]);
 
         match current_track.results {
             ResultsJson::Select(g) => {
@@ -159,11 +159,11 @@ async fn play(state: &SharedState, sink: &Sink) -> Result<()> {
             .bar
             .update_song_info_on_screen(state.get_current_track_info())?;
 
-        match Mp3::load(buf)?.decoder().await {
+        match Mp3::load(buf)?.symphonia_decoder().await {
             Ok(mp3) => sink.append(mp3),
             Err(e) => println!("skip: Decode Error {:?}", e),
-        };
-    }
+        }
+    };
     Ok(())
 }
 
@@ -174,7 +174,7 @@ async fn search(state: &SharedState) -> Result<()> {
 
     *PARK.lock().unwrap() = true;
     if search_str.is_some() {
-        state.search(search_str).await?;
+        state.search(search_str)?;
     }
     Ok(())
 }

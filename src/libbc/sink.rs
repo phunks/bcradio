@@ -1,5 +1,5 @@
-use crate::libbc::stream_decoder::Mp3StreamDecoder;
-use anyhow::Result;
+
+use anyhow::{Error, Result};
 use rodio::{OutputStream, OutputStreamHandle};
 use std::io;
 use std::marker::PhantomData;
@@ -9,6 +9,7 @@ use std::sync::Arc;
 use cpal::traits::HostTrait;
 #[allow(unused_imports)]
 use rodio::DeviceTrait;
+use symphonia::core::io::{MediaSource, MediaSourceStream};
 
 pub struct MusicStruct<'a> {
     pub stream_handle: Option<OutputStreamHandle>,
@@ -77,7 +78,17 @@ impl Mp3 {
     pub fn cursor(&self) -> io::Cursor<Mp3> {
         io::Cursor::new(Mp3(self.0.to_owned()))
     }
-    pub async fn decoder(&self) -> Result<Mp3StreamDecoder<io::Cursor<Mp3>>> {
-        Ok(Mp3StreamDecoder::new(self.cursor()).await.unwrap())
+    pub async fn symphonia_decoder(&self) -> Result<rodio::decoder::Decoder<MediaSourceStream>> {
+        let mss = MediaSourceStream::new(
+            Box::new(self.cursor()) as Box<dyn MediaSource>,
+            Default::default(),
+        );
+        match rodio::decoder::Decoder::new_mp3(mss) {
+            Err(e) => Err(Error::from(e)),
+            Ok(decoder)
+                => Ok(decoder)
+        }
     }
 }
+
+

@@ -207,7 +207,7 @@ impl PlayList for SharedState {
                                     => panic!("inquire error: {:?}", other_error),
                                 }
                             };
-                            self.set_genre(&ans);
+                            self.set_genre(ans);
                             self.set_subgenre(&tags);
                             Ok(PostData {
                                 tag_norm_names: vec![

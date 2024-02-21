@@ -2,14 +2,13 @@
 use std::ops::Deref;
 use std::time::Duration;
 use anyhow::{Error, Result};
-use clap::Parser;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, poll};
 use crossterm::event::KeyEventKind;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use libbc::player::{PARK, RXTX};
 
 use crate::models::bc_error::BcradioError;
-use crate::libbc::args::Args;
+use crate::libbc::args::init_args;
 use crate::libbc::player;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::terminal;
@@ -27,9 +26,9 @@ const LOGO: &str = r#"
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    Args::parse();
-
+    init_args();
     terminal::init();
+
     println!("{}", LOGO);
 
     if let Err(e) = start_playing().await {

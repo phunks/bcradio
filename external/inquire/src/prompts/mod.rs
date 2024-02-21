@@ -5,7 +5,7 @@ mod action;
 // mod dateselect;
 // #[cfg(feature = "editor")]
 // mod editor;
-// mod multiselect;
+mod multiselect;
 // mod one_liners;
 // mod password;
 mod prompt;
@@ -21,7 +21,7 @@ pub use action::*;
 // pub use dateselect::*;
 // #[cfg(feature = "editor")]
 // pub use editor::*;
-// pub use multiselect::*;
+pub use multiselect::*;
 // #[cfg(feature = "one-liners")]
 // pub use one_liners::*;
 // pub use password::*;

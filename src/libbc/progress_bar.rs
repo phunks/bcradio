@@ -130,7 +130,6 @@ impl Progress<'static> for Bar<'static> {
 
     fn get_progress_bar_current_position(&self) -> Duration {
         PROGRESS_BAR.lock().unwrap().to_owned().unwrap().eta()
-        // self.mutex_progress_bar.lock().unwrap().to_owned().unwrap().eta()
     }
 
     fn enable_tick(&self) {
@@ -163,7 +162,7 @@ impl Progress<'static> for Bar<'static> {
     fn destroy(&self) {
         match PROGRESS_BAR.lock() {
             Ok(a)
-                => if let Some(a) = a.to_owned() { a.finish() },
+                => if let Some(a) = a.to_owned() { a.finish_and_clear() },
             Err(e)
                 => println!("Error: {}", e),
         }

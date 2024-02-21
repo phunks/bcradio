@@ -120,16 +120,18 @@ pub fn show_alt_term<T>(v: Vec<T>, img: Option<Vec<u8>>) -> anyhow::Result<()>
         draw(&mut term, textarea)?
     }
 
+    loop {
     match crossterm::event::read()?.into() {
         Input {
             key: Key::Esc,
             ..
-        } => {},
+            } => { break },
         Input {
             key: Key::Char(_c), // any
             ..
-        } => {},
+            } => { break },
         Input { .. } => {}
+        }
     }
 
     execute!(

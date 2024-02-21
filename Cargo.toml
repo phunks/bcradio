@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.7.3"
+version = "0.8.0"
 edition = "2021"
 
 [profile.release]
@@ -13,57 +13,45 @@ codegen-units = 1
 
 
 [dependencies]
-anyhow = { version = "1.0.79" }
-async-channel = { version = "2.1.1" }
+anyhow = { version = "1.0.80" }
+async-channel = { version = "2.2.0" }
 async-std = { version = "1.12.0" }
-async-stream = { version = "0.3.5" }
 async-trait = { version = "0.1.77" }
-chrono = { version = "0.4.33"}
-clap = { version = "4.4.18", features = ["derive"] }
+chrono = { version = "0.4.34"}
+clap = { version = "4.5.1", features = ["derive"] }
 colored = { version = "2.1.0" }
 cpal = { version = "0.15.2", features = ["asio"] }
 crossbeam = { version = "0.8.4" }
 crossbeam-channel = { version = "0.5.11" }
 crossbeam-utils = { version = "0.8.19" }
 crossterm = { version = "0.27.0" }
-flume = { version = "0.11.0" }
 futures = { version = "0.3.30" }
-http = { version = "1.0.0" }
-indicatif = { version = "0.17.7" }
+indicatif = { version = "0.17.8" }
 inquire = { path = "external/inquire", version = "0.6.2" }
 lazy_static = { version = "1.4.0" }
-lock_api = { version = "0.4.11" }
-minimp3 = { package = "minimp3_fixed", version = "0.5.4", features = ["async_tokio"] }
-minimp3-sys = { version = "0.3.2" }
 mp3-duration = { version = "0.1.10" }
 once_cell = { version = "1.19.0" }
-rand = { version = "0.8.5" }
 ratatui = { version = "0.26.0" }
 reqwest = { version = "0.11.23", default-features = false, features = ["trust-dns", "blocking", "json", "stream", "gzip", "rustls-tls-native-roots"] }
-rodio = { version = "0.17.3" }
+rodio = { version = "0.17.3", features = ["symphonia", "symphonia-mp3" ] }
 scraper = { version = "0.18.1" }
 serde = { version = "1.0.196", features = ["derive"] }
 serde_json = { version = "1.0.112" }
-slice-ring-buffer = { version = "0.3.3" }
 symphonia = { version = "0.5.3" }
 tokio = { version = "1.35.1", features = ["full"] }
-tokio-scoped = { version = "0.2.0" }
 tui-textarea = { version = "0.4.0" }
 url = { version = "2.5.0"}
 ctrlc = { version = "3.4.2" }
 thiserror = { version = "1.0.56" }
 curl = { version = "0.4.44", features = ["http2"] }
-async-curl = { version = "0.2.4" }
 simd-json = { version = "0.13.8" }
-rev_buf_reader = { version = "0.3.0" }
 bytes = { version = "1.5.0" }
 flate2 = { version = "1.0.28" }
-futures-core = { version = "0.3.30" }
-miniz_oxide = { version = "0.7.1" }
 regex = "1.10.3"
 chrono-tz = { version = "0.8.5" }
 viu = { path = "external/viu", version = "1.5.0" }
 viuer = { version = "0.7.1" }
+itertools = "0.12.1"
 
 [dev-dependencies]
 env_logger = { version = "0.10.1" }
