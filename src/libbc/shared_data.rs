@@ -1,6 +1,6 @@
 
 use std::clone::Clone;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::iter::Iterator;
 use std::marker::PhantomData;
@@ -9,13 +9,14 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::Local;
-use tokio::io::copy;
-use async_std::stream::StreamExt;
+use curl::multi::Easy2Handle;
 
 use crate::debug_println;
+use crate::libbc::http_adapter::http_adapter;
 use crate::models::bc_discover_index::{Element, PostData};
 use crate::libbc::progress_bar::{Bar, Progress};
-use crate::libbc::http_client::get_request;
+use crate::libbc::http_client::Collector;
+use crate::libbc::search::is_mp3;
 use crate::models::shared_data_models::{CurrentTrack, State, Track};
 
 #[derive(Default, Debug)]
@@ -44,25 +45,25 @@ impl SharedState {
     pub async fn enqueue_truck_buffer(&self) -> Result<()> {
         let l: usize = self.queue_length_from_truck_list();
         if 0 < l { // add audio buffer
-            for i in 0..l {
-                if !self.exists_track_buffer(0) {
-                    self.bar.enable_spinner();
-                    let url = self.get_track_url(i);
-                    let mut stream = get_request(url).await?.bytes_stream();
-                    let mut buf: Vec<u8> = Vec::new();
+            let i = 0;
+            if !self.exists_track_buffer(0) {
+                self.bar.enable_spinner();
+                let url = self.get_track_url(i);
 
-                    while let Some(resp) = stream.next().await {
-                        copy(&mut resp?.as_ref(), &mut buf).await?;
-                    };
-                    use std::time::Instant; //debug
-                    let _start = Instant::now(); //debug
-                    let duration = mp3_duration::from_read(&mut io::Cursor::new(buf.clone())).unwrap();
-                    debug_println!("Debug mp3: {:?}\r", _start.elapsed()); //debug
-                    debug_println!("{:?}\r", duration);
-                    self.set_track_buffer(i, buf, duration);
-                    self.bar.disable_spinner();
-                }
-                if i > 1 { break; }
+                let buf = match http_adapter(vec!(url), response_filter, mp3_output) {
+                    Ok(v) => {
+                        v.first().unwrap().clone().unwrap()
+                    },
+                    Err(e) => return Err(e),
+                };
+
+                use std::time::Instant; //debug
+                let _start = Instant::now(); //debug
+                let duration = mp3_duration::from_read(&mut io::Cursor::new(buf.clone())).unwrap();
+                debug_println!("Debug mp3: {:?}\r", _start.elapsed()); //debug
+                debug_println!("{:?}\r", duration);
+                self.set_track_buffer(i, buf, duration);
+                self.bar.disable_spinner();
             }
         }
 
@@ -181,3 +182,24 @@ impl SharedState {
     }
 }
 
+fn response_filter(handle: &mut Easy2Handle<Collector<Option<Vec<u8>>>>) {
+    match handle.response_code() {
+        Ok(200) => handle.get_mut().dat = vec!(Option::from(handle.get_ref().res.clone())),
+        _ => handle.get_mut().dat = vec!(None),
+    }
+}
+
+fn mp3_output(handles: HashMap<usize, Easy2Handle<Collector<Option<Vec<u8>>>>>) -> Vec<Option<Vec<u8>>> {
+    let mut v = Vec::<Option<Vec<u8>>>::new();
+    handles.iter().for_each(|x|{
+        x.1.get_ref().dat.iter().for_each(|x|
+            if let Some(aa) = x.clone() {
+                match is_mp3(aa) {
+                    true => v.append(&mut vec![x.clone()]),
+                    false => {},
+                }
+            }
+        )
+    });
+    v
+}

@@ -20,12 +20,16 @@ If AAAA records are returned slowly in the information screen, add "options sing
 
 The program can also play audio using the [ASIO4ALL](https://asio4all.org) driver instead of WASAPI.
 
+Note: Windows is a pain to boot up, so I haven't done much software testing. Well, it will work.
+
 ## Usage
 
 ```
 Usage: bcradio
 
 Options:
+      --no-ssl-verify  disable SSL verification
+  -i, --img-width <IMG_WIDTH>  image size [default: 30]
   -h, --help     Print help
   -V, --version  Print version
   

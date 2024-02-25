@@ -24,6 +24,9 @@ pub struct Args {
     /// disable SSL verification
     #[arg(long)]
     pub no_ssl_verify: bool,
+    /// image size
+    #[arg(long, short, default_value_t = 30)]
+    pub img_width: u16,
 }
 
 pub fn about() -> &'static str {
@@ -39,4 +42,12 @@ pub fn init_args() {
 
 pub fn args_no_ssl_verify() -> bool {
     ARGS.lock().unwrap().as_ref().unwrap().no_ssl_verify
+}
+
+pub fn args_img_size() -> u16 {
+    return match ARGS.lock().unwrap().as_ref().unwrap().img_width {
+        100 .. => 100,
+        ..= 10 => 10,
+        a => a,
+    };
 }

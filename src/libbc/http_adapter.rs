@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bytes::BytesMut;
-
 use curl::easy::{Easy2, HttpVersion, List};
 use curl::multi::{Easy2Handle, Multi};
 use scraper::Html;
@@ -12,15 +11,15 @@ use simd_json::OwnedValue as Value;
 
 use crate::debug_println;
 use crate::libbc::args::args_no_ssl_verify;
-use crate::libbc::http_client::{decoder, Collector, USER_AGENT};
+use crate::libbc::http_client::{ACCEPT_HEADER, USER_AGENT, Collector};
 use crate::libbc::search::{base_url, parse_doc};
 use crate::models::search_models::{Current, ItemPage, TrackInfo};
 use crate::models::shared_data_models::{ResultsJson, Track};
 
-fn download(multi: &mut Multi, token: usize, url: &str) -> Result<Easy2Handle<Collector>> {
+fn download<T>(multi: &mut Multi, token: usize, url: &str) -> Result<Easy2Handle<Collector<T>>> {
     let mut easy = Easy2::new(Collector {
         res: Vec::new(),
-        dat: Vec::new(),
+        dat: Default::default(),
     });
     easy.url(url)?;
     easy.useragent(USER_AGENT)?;
@@ -32,10 +31,8 @@ fn download(multi: &mut Multi, token: usize, url: &str) -> Result<Easy2Handle<Co
     }
 
     let mut list = List::new();
-    list.append(
-        "Accept: application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*",
-    )?;
-    list.append("Accept-Encoding: deflate, gzip")?;
+    list.append(ACCEPT_HEADER)?;
+    list.append("Accept-Encoding: gzip")?;
     list.append("Content-Encoding: gzip")?;
     easy.http_headers(list)?;
 
@@ -45,17 +42,22 @@ fn download(multi: &mut Multi, token: usize, url: &str) -> Result<Easy2Handle<Co
     Ok(handle)
 }
 
-pub fn http_adapter(urls: Vec<String>) -> Result<Vec<Track>> {
+pub fn http_adapter<R, T>(
+    urls: Vec<String>,
+    mut a: impl FnMut(&mut Easy2Handle<Collector<T>>),
+    b: impl FnOnce(HashMap<usize, Easy2Handle<Collector<T>>>) -> R,
+) -> Result<R> {
     let mut multi = Multi::new();
     let mut handles = urls
         .iter()
         .enumerate()
-        .map(|(token, url)| Ok((token, download(&mut multi, token, url)?)))
-        .collect::<Result<HashMap<_, _>>>()?;
+        .map(|(token, url)|
+            Ok((token, download(&mut multi, token, url).unwrap())))
+        .collect::<Result<HashMap<_, _>>>().unwrap();
 
     let mut still_alive = true;
     while still_alive {
-        if multi.perform()? == 0 {
+        if multi.perform().unwrap() == 0 {
             still_alive = false;
         }
 
@@ -70,24 +72,18 @@ pub fn http_adapter(urls: Vec<String>) -> Result<Vec<Track>> {
                 .expect("token mismatch with the `EasyHandle`")
             {
                 Ok(()) => {
-                    let http_status = handle
+                    let _http_status = handle
                         .response_code()
                         .expect("HTTP request finished without status code");
 
                     debug_println!(
                         "R: Transfer succeeded (Status: {}) {} (Download length: {})\r",
-                        http_status,
+                        _http_status,
                         urls[token],
                         handle.get_ref().res.len()
                     );
 
-                    if http_status == 200 {
-                        let aa = decoder(handle.get_ref().res.clone());
-                        if let Ok(t) = html_to_json(aa) {
-                            let a = json_to_track(t).unwrap();
-                            handle.get_mut().dat = a;
-                        }
-                    }
+                    a(handle);
                 }
                 Err(_e) => {
                     debug_println!("E: {} - <{}>\r", _e, urls[token]);
@@ -96,27 +92,20 @@ pub fn http_adapter(urls: Vec<String>) -> Result<Vec<Track>> {
         });
 
         if still_alive {
-            multi.wait(&mut [], Duration::from_secs(6))?;
+            multi.wait(&mut [], Duration::from_secs(6)).unwrap();
         }
     }
 
-    let mut v = Vec::<Track>::new();
-
-    handles.iter().for_each(|x| {
-        #[allow(clippy::len_zero)]
-        if x.1.get_ref().dat.len() > 0 {
-            v.append(&mut x.1.get_ref().dat.clone())
-        }
-    });
-
-    Ok(v)
+    Ok(b(handles))
 }
 
-fn html_to_json(res: Vec<u8>) -> Result<Value> {
+pub fn html_to_json(res: Vec<u8>) -> Result<Value> {
     let html = String::from_utf8(res)?;
     let doc = Html::parse_document(&html);
 
-    let c = parse_doc(doc.clone(), "script[data-tralbum]", "data-tralbum")?;
+    let c = parse_doc(doc.clone(),
+                      "script[data-tralbum]",
+                      "data-tralbum")?;
 
     let mut b = BytesMut::new();
     b.extend_from_slice(c.as_ref());
@@ -145,8 +134,8 @@ fn j2t(json: Value) -> Result<Vec<Track>> {
             release_date: json["current"]["publish_date"].to_string(),
         },
         artist: json["artist"].to_string(),
-        trackinfo: simd_json::serde::from_refowned_value::<Vec<TrackInfo>>(&json["trackinfo"])
-            .unwrap(),
+        trackinfo: simd_json::serde::from_refowned_value::<Vec<TrackInfo>>(
+            &json["trackinfo"]).unwrap(),
         album_url: Option::from(item_path),
         item_url: Option::from(item_url),
     };
@@ -175,6 +164,6 @@ fn j2t(json: Value) -> Result<Vec<Track>> {
     Ok(v)
 }
 
-fn json_to_track(json: Value) -> Result<Vec<Track>> {
+pub fn json_to_track(json: Value) -> Result<Vec<Track>> {
     j2t(json)
 }

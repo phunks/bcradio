@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io;
 use anyhow::{Error, Result};
 use async_trait::async_trait;
@@ -7,6 +8,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::*;
+use curl::multi::Easy2Handle;
 use inquire::MultiSelect;
 use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::Borders;
@@ -15,15 +17,17 @@ use scraper::{Html, Selector};
 use itertools::Itertools;
 use regex::Regex;
 use tui_textarea::{Input, Key, TextArea};
+use crate::debug_println;
 
-use crate::libbc::http_adapter::http_adapter;
-use crate::libbc::http_client::Client;
+use crate::libbc::http_adapter::{html_to_json, http_adapter, json_to_track};
+use crate::libbc::http_client::{Client, Collector, decoder};
 use crate::libbc::player::PARK;
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::terminal::{clear_screen, draw};
 use crate::models::bc_error::BcradioError;
 use crate::models::search_models::{SearchJsonRequest, SearchJsonResponse};
+use crate::models::shared_data_models::Track;
 
 #[async_trait]
 pub trait Search {
@@ -62,7 +66,11 @@ impl Search for SharedState {
         let url_list = v.iter().map(|s| s.to_string()).take(10).collect();
         self.bar.enable_spinner();
 
-        let mut r = http_adapter(url_list)?;
+        use std::time::Instant; //debug
+        let _start = Instant::now(); //debug
+        let mut r = http_adapter(url_list, collector, multi_output)?;
+        debug_println!("Debug http_adapter: {:?}\r", _start.elapsed()); //debug
+
         self.bar.disable_spinner();
 
         let uniq = r.iter().unique_by(|p| &p.band_id).collect::<Vec<_>>();
@@ -170,6 +178,44 @@ pub fn base_url(item_url: String) -> String {
     let re = Regex::new("(https?://.*?)/.*").unwrap();
     re.replace(item_url.as_str(), "$1").to_string()
 }
+
+fn collector(handle: &mut Easy2Handle<Collector<Track>>)
+{
+    let html = decoder(handle.get_ref().res.clone());
+    if let Ok(t) = html_to_json(html) { handle.get_mut().dat = json_to_track(t).unwrap() }
+}
+
+fn multi_output(handles: HashMap<usize, Easy2Handle<Collector<Track>>>) -> Vec<Track> {
+    let mut v = Vec::<Track>::new();
+    handles.iter().for_each(|x|{
+        #[allow(clippy::len_zero)]
+        if x.1.get_ref().dat.len() > 0 {
+            v.append(&mut x.1.get_ref().dat.clone())
+        }
+    });
+    v
+}
+
+const MP3_SIGNATURE_1: [u8; 2] = [0xFF, 0xFB];
+const MP3_SIGNATURE_2: [u8; 2] = [0xFF, 0xF3];
+const MP3_SIGNATURE_3: [u8; 2] = [0xFF, 0xF2];
+const MP3_SIGNATURE_4: [u8; 2] = [0xFF, 0xFA];
+//0x49, 0x44, 0x43
+const MP3_SIGNATURE_5: [u8; 2] = [0x49, 0x44];
+
+pub fn is_mp3(v: Vec<u8>) -> bool {
+    match v.get(0..2) {
+        Some(mp3)
+        => matches!(mp3.try_into().unwrap(),
+                MP3_SIGNATURE_1
+                | MP3_SIGNATURE_2
+                | MP3_SIGNATURE_3
+                | MP3_SIGNATURE_4
+                | MP3_SIGNATURE_5 ),
+        _ => false,
+    }
+}
+
 
 /// https://rosettacode.org/wiki/Date_manipulation#Rust
 /// Chrono allows parsing time zone abbreviations like "EST", but

@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 
 [profile.release]
@@ -27,42 +27,30 @@ crossbeam-utils = { version = "0.8.19" }
 crossterm = { version = "0.27.0" }
 futures = { version = "0.3.30" }
 indicatif = { version = "0.17.8" }
-inquire = { path = "external/inquire", version = "0.6.2" }
+inquire = { path = "external/inquire", version = "0.7.0" }
 lazy_static = { version = "1.4.0" }
 mp3-duration = { version = "0.1.10" }
 once_cell = { version = "1.19.0" }
-ratatui = { version = "0.26.0" }
-reqwest = { version = "0.11.23", default-features = false, features = ["trust-dns", "blocking", "json", "stream", "gzip", "rustls-tls-native-roots"] }
+ratatui = { version = "0.26.1" }
 rodio = { version = "0.17.3", features = ["symphonia", "symphonia-mp3" ] }
 scraper = { version = "0.18.1" }
-serde = { version = "1.0.196", features = ["derive"] }
-serde_json = { version = "1.0.112" }
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = { version = "1.0.114" }
 symphonia = { version = "0.5.3" }
-tokio = { version = "1.35.1", features = ["full"] }
+tokio = { version = "1.36.0", features = ["full"] }
 tui-textarea = { version = "0.4.0" }
 url = { version = "2.5.0"}
 ctrlc = { version = "3.4.2" }
-thiserror = { version = "1.0.56" }
-curl = { version = "0.4.44", features = ["http2"] }
+thiserror = { version = "1.0.57" }
+curl = { version = "0.4.46", features = ["http2"] }
 simd-json = { version = "0.13.8" }
 bytes = { version = "1.5.0" }
 flate2 = { version = "1.0.28" }
 regex = "1.10.3"
-chrono-tz = { version = "0.8.5" }
+chrono-tz = { version = "0.8.6" }
 viu = { path = "external/viu", version = "1.5.0" }
 viuer = { version = "0.7.1" }
 itertools = "0.12.1"
-
-[dev-dependencies]
-env_logger = { version = "0.10.1" }
-actix-web = { version = "4.4.1" }
-actix-web-lab = { version = "0.20.1" }
-actix-session = { version = "0.8.0", features = ["cookie-session"] }
-actix-files = { version = "0.6.2" }
-actix-rt = { version = "2.9.0" }
-actix-http = { version = "3.5.1" }
-serde_derive = { version = "1.0.194" }
-
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0" }

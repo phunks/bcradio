@@ -18,6 +18,7 @@ use viuer::Config as ViuerConfig;
 
 #[cfg(windows)]
 use crate::debug_println;
+use crate::libbc::args::args_img_size;
 
 pub fn init() {
     enable_color_on_windows();
@@ -93,10 +94,9 @@ pub fn show_alt_term<T>(v: Vec<T>, img: Option<Vec<u8>>) -> anyhow::Result<()>
                 recursive: false,
                 static_gif: false,
                 viuer_config: ViuerConfig {
-                    width: Option::from(30),
-                    height: Option::from(14),
+                    width: Option::from(args_img_size() as u32),
+                    height: Option::from(args_img_size() as u32 / 2 - 1),
                     absolute_offset: false,
-                    use_kitty: false,
                     ..Default::default()
                 },
                 frame_duration: None,
@@ -170,7 +170,7 @@ pub fn draw_img(
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(32),
+                Constraint::Length(args_img_size() + 1),
                 Constraint::Percentage(100),
             ].as_slice())
             .split(f.size());

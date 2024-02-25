@@ -2,18 +2,17 @@ use std::io;
 use std::io::Read;
 use std::time::Duration;
 
-use anyhow::{anyhow, Error, Result};
+use anyhow::{Error, Result};
 use curl::easy::{Easy2, Handler, HttpVersion, List, WriteError};
 use flate2::bufread;
 use flate2::bufread::{DeflateDecoder, ZlibDecoder};
-use reqwest::{header, Response};
 use serde::Serialize;
-use simd_json::owned::Value;
 
 use crate::debug_println;
 use crate::libbc::args::args_no_ssl_verify;
-use crate::models::shared_data_models::Track;
 
+pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100";
+pub const ACCEPT_HEADER: &str = "Accept: application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*";
 #[derive(Debug, Clone)]
 pub struct Client {
     res: Vec<u8>,
@@ -29,12 +28,13 @@ impl Default for Client {
     }
 }
 impl Client {
+    //blocking
     pub fn get_curl_request(mut self, url: String) -> Result<Client> {
         debug_println!("debug: get_curl_request {}\r", url);
 
-        let mut easy = Easy2::new(Collector {
+        let mut easy = Easy2::new(Collector::<String> {
             res: Vec::new(),
-            dat: Vec::new(),
+            dat: Default::default(),
         });
         easy.get(true)?;
         easy.follow_location(true)?;
@@ -45,10 +45,8 @@ impl Client {
         }
 
         let mut list = List::new();
-        list.append(
-            "Accept: application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*",
-        )?;
-        list.append("Accept-Encoding: deflate, gzip")?;
+        list.append(ACCEPT_HEADER)?;
+        list.append("Accept-Encoding: gzip")?;
         list.append("Content-Encoding: gzip")?;
 
         easy.http_headers(list)?;
@@ -68,9 +66,9 @@ impl Client {
         T: Serialize,
     {
         debug_println!("debug: post_curl_request {}\r", url);
-        let mut easy = Easy2::new(Collector {
+        let mut easy = Easy2::new(Collector::<String> {
             res: Vec::new(),
-            dat: Vec::new(),
+            dat: Default::default(),
         });
         easy.post(true).unwrap();
         easy.url(&url).unwrap();
@@ -79,7 +77,7 @@ impl Client {
         }
         let mut list = List::new();
         list.append("Accept: */*")?;
-        list.append("Accept-Encoding: gzip;q=0.4, deflate, br")?;
+        list.append("Accept-Encoding: gzip;q=0.4")?;
         list.append("Content-Encoding: gzip")?;
         match serde_json::to_string(&post_data) {
             Ok(body) => {
@@ -102,33 +100,16 @@ impl Client {
         Ok(self)
     }
 
-    #[allow(dead_code)]
-    pub fn json(self) -> Result<Value> {
-        let mut b = self.res;
-        let bytes = b.as_mut_slice();
-        let val = simd_json::from_slice(bytes)?;
-        Ok(val)
-    }
-
     pub fn vec(self) -> Result<Vec<u8>> {
         Ok(self.res)
     }
-    #[allow(dead_code)]
-    pub fn error_for_status(&self) -> Result<&Self> {
-        let status = self.status.clone()?;
-        if (400..600).contains(&status) {
-            Err(anyhow!("Missing attribute: {}", status))
-        } else {
-            Ok(self)
-        }
-    }
 }
 
-pub struct Collector {
+pub struct Collector<T> {
     pub res: Vec<u8>,
-    pub dat: Vec<Track>,
+    pub dat: Vec<T>,
 }
-impl Handler for Collector {
+impl<T> Handler for Collector<T> {
     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
         self.res.extend_from_slice(data);
         Ok(data.len())
@@ -170,42 +151,3 @@ pub fn gz_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
     Ok(s)
 }
 
-pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100";
-pub async fn get_request(url: String) -> Result<Response> {
-    debug_println!("debug: request_url {}\r", url);
-    let mut headers = header::HeaderMap::new();
-    headers.insert(
-        header::ACCEPT,
-        header::HeaderValue::from_static(
-            "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*",
-        ),
-    );
-    let client = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .default_headers(headers)
-        .gzip(false)
-        .build()?;
-    let buf = client.get(url.as_str()).send().await?;
-    Ok(buf)
-}
-
-#[allow(dead_code)]
-pub async fn post_request<T>(url: String, post_data: T) -> Result<Response>
-where
-    T: Serialize,
-{
-    let mut headers = header::HeaderMap::new();
-    headers.insert(
-        "Content-Type",
-        header::HeaderValue::from_static("application/json; charset=utf-8"),
-    );
-
-    debug_println!("debug: request_url_post {}\r", url);
-    let client = reqwest::Client::builder()
-        .user_agent(USER_AGENT)
-        .gzip(false)
-        .default_headers(headers)
-        .build()?;
-    let buf = client.post(url.as_str()).json(&post_data).send();
-    Ok(buf.await.expect("error reqwest"))
-}
