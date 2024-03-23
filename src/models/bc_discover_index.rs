@@ -14,10 +14,11 @@ pub struct AppData {
     #[serde(rename="initialState")]
     pub initial_state: InitialState,
     #[serde(rename="seoData")]
-    pub seo_data: SeoData,
+    seo_data: Option<SeoData>,
     #[serde(rename="includeResultTypes")]
     pub include_result_types: Vec<String>,
 }
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InitialState {
     pub categories: Vec<Element>,
