@@ -48,7 +48,7 @@ impl Player<'static> for SharedState {
 
         match state.ask() {
             Ok(post_data)
-                => state.store_results(post_data).unwrap(),
+                => state.store_results(post_data),
             Err(e)
                 => quit(e),
         };
@@ -83,7 +83,7 @@ impl Player<'static> for SharedState {
                     }
                     'i' => { info(&state)? }
                     'm' => { menu(&state)? }
-                    'f' => { state.search(None)? }
+                    'f' => { state.search(None).await? }
                     's' => { search(&state).await? }
                     'h' => { help(&state)? }
                     'Q' => { break; }
@@ -174,7 +174,7 @@ async fn search(state: &SharedState) -> Result<()> {
 
     *PARK.lock().unwrap() = true;
     if search_str.is_some() {
-        state.search(search_str)?;
+        state.search(search_str).await?;
     }
     Ok(())
 }

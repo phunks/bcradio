@@ -30,7 +30,7 @@ use crate::models::shared_data_models::{ResultsJson, Track};
 
 pub trait PlayList {
     fn ask(&self) -> Result<PostData>;
-    fn store_results(&self, post_data: PostData) -> Result<()>;
+    fn store_results(&self, post_data: PostData);
     fn fill_playlist(&self) -> Result<()>;
     fn discover_index(&self, url: String) -> Result<DiscoverIndexRequest>;
     fn discover_json(&self, post_data: PostData) -> Result<Vec<Results>>;
@@ -52,10 +52,10 @@ impl PlayList for SharedState {
         Ok(post_data)
     }
 
-    fn store_results(&self, post_data: PostData) -> Result<()> {
+    fn store_results(&self, post_data: PostData) {
         let res = self.discover_json(post_data).unwrap();
-        self.append_tracklist(self.gen_track_list(res)?);
-        Ok(())
+        let aa = self.gen_track_list(res).unwrap();
+        self.append_tracklist(aa);
     }
 
     fn fill_playlist(&self) -> Result<()> {
@@ -64,7 +64,7 @@ impl PlayList for SharedState {
             match self.next_post().cursor{
                 Some(_) => {
                     let post_data = self.next_post().clone();
-                    let res = self.discover_json(post_data).unwrap();
+                    let res = self.discover_json(post_data)?;
                     self.append_tracklist(self.gen_track_list(res)?);
                 },
                 None => {
@@ -74,7 +74,7 @@ impl PlayList for SharedState {
 
                     match self.ask() {
                         Ok(post_data)
-                            => self.store_results(post_data).unwrap(),
+                            => self.store_results(post_data),
                         _ => quit(Error::from(BcradioError::Quit)),
                     }
                 }
@@ -131,6 +131,7 @@ impl PlayList for SharedState {
         let mut url = String::from("https://bandcamp.com/discover/");
         let mut genre_ans = Ok(String::new());
         let mut skip = false;
+        let mut n = 0;
 
         loop {
             let t = self.discover_index(url.to_string());
@@ -158,8 +159,9 @@ impl PlayList for SharedState {
                             => return Err(Error::from(BcradioError::Cancel)),
                         InquireError::OperationInterrupted
                             => return Err(Error::from(BcradioError::OperationInterrupted)),
-                        other_error
-                            => panic!("inquire error: {:?}", other_error),
+                        // other_error
+                        // => panic!("inquire error: {:?}", other_error),
+                        _ => return Err(Error::from(BcradioError::InvalidJsonResponse)),
                     }
                 }
             }
@@ -173,10 +175,21 @@ impl PlayList for SharedState {
 
                     return match parent_labels.len() {
                         0 => {
-                            url = format!("https://bandcamp.com/discover?tags={}",
+                            url = format!("https://bandcamp.com/discover/{}",
                                                        url_escape(slug(tags.clone())));
                             genre_ans = Ok(slug(tags.clone()));
-                            skip = true;
+
+                            match n {
+                                1.. => {
+                                    n = 0;
+                                    skip = false;
+                                    url = String::from("https://bandcamp.com/discover/");
+                                },
+                                _ => {
+                                    n += 1;
+                                    skip = true;
+                                },
+                            }
                             continue
                         }
                         1 => { // subgenre found, redirect
@@ -319,7 +332,7 @@ impl PlayList for SharedState {
         match self.ask() {
             Ok(post_data) => {
                 self.clear_all_tracklist();
-                self.store_results(post_data).unwrap();
+                self.store_results(post_data);
             },
             Err(e) => {
                 match e.downcast_ref().unwrap() {

@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2021"
 
 [profile.release]
@@ -46,11 +46,11 @@ curl = { version = "0.4.46", features = ["http2"] }
 simd-json = { version = "0.13.8" }
 bytes = { version = "1.5.0" }
 flate2 = { version = "1.0.28" }
-regex = "1.10.3"
+regex = { version = "1.10.3" }
 chrono-tz = { version = "0.8.6" }
 viu = { path = "external/viu", version = "1.5.0" }
 viuer = { version = "0.7.1" }
-itertools = "0.12.1"
+itertools = { version = "0.12.1" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0" }

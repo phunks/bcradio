@@ -31,13 +31,13 @@ use crate::models::shared_data_models::Track;
 
 #[async_trait]
 pub trait Search {
-    fn search(&self, search_text: Option<String>) -> Result<()>;
+    async fn search(&self, search_text: Option<String>) -> Result<()>;
     fn show_input_panel(&self) -> Result<Option<String>>;
 }
 
 #[async_trait]
 impl Search for SharedState {
-    fn search(&self, mut search_text: Option<String>) -> Result<()> {
+    async fn search(&self, mut search_text: Option<String>) -> Result<()> {
         if search_text.is_none() {
             search_text = Option::from(self.get_current_track_info().artist_name);
         }

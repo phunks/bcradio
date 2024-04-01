@@ -15,4 +15,6 @@ pub enum BcradioError {
     CouldntResolveHost,
     #[error("Phase error")]
     PhaseError,
+    #[error("Invalid Json Response")]
+    InvalidJsonResponse,
 }
