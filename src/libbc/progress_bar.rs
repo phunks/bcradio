@@ -1,4 +1,5 @@
 use std::fmt::Write;
+use std::io::stdout;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -8,7 +9,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Local};
 use colored::Colorize;
-use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use crossterm::{cursor, execute};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
 use tokio::task::JoinHandle;
 
 use crate::format_duration;
@@ -90,7 +92,7 @@ impl Progress<'static> for Bar<'static> {
         };
         let b = self.clone();
         let progress_bar_style = ProgressStyle::with_template(
-            "{prefix}  {wide_bar} {progress_info} {spinner:.dim.bold} ",
+            "  {wide_bar} {progress_info} {spinner:.dim.bold} ",
         ).unwrap()
             .tick_chars("⠁⠂⠄⡀⠄⠂ ")
             .with_key(
@@ -141,22 +143,22 @@ impl Progress<'static> for Bar<'static> {
     }
 
     fn enable_tick_on_screen(&self) {
-        let interval = Duration::from_secs(1);
         PROGRESS_BAR
-            .lock()
-            .unwrap()
-            .to_owned()
-            .unwrap()
-            .enable_steady_tick(interval);
+            .lock().unwrap()
+            .to_owned().unwrap()
+            .set_draw_target(ProgressDrawTarget::stdout());
+
+        execute!(stdout(),
+            cursor::MoveUp(1),
+            cursor::Hide
+        ).unwrap();
     }
 
     fn disable_tick_on_screen(&self) {
         PROGRESS_BAR
-            .lock()
-            .unwrap()
-            .to_owned()
-            .unwrap()
-            .disable_steady_tick();
+            .lock().unwrap()
+            .to_owned().unwrap()
+            .set_draw_target(ProgressDrawTarget::hidden());
     }
 
     fn destroy(&self) {

@@ -33,7 +33,7 @@ pub struct Element {
     pub id: i64,
     pub label: String,
     pub slug: String,
-    pub selected: bool,
+    // pub selected: Option<bool>,
     #[serde(rename="parentId")]
     pub parent_id: Option<i64>,
 }
@@ -44,7 +44,7 @@ impl Clone for Element {
             id: self.id,
             label: self.label.clone(),
             slug: self.slug.clone(),
-            selected: self.selected,
+            // selected: self.selected,
             parent_id: self.parent_id,
         }
     }

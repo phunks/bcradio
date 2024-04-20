@@ -37,6 +37,7 @@ pub(crate) fn clear_screen() {
 
 pub(crate) fn quit(e: anyhow::Error) -> ! {
     disable_raw_mode().unwrap();
+    execute!(io::stdout(), cursor::Show).unwrap();
     #[cfg(windows)]
     asio_kill();
     println!("{e}");

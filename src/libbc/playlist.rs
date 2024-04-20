@@ -6,6 +6,7 @@ use bytes::BytesMut;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::{cursor, execute};
 use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use futures::executor::block_on;
 use inquire::{InquireError, Select};
 use inquire::ui::{Attributes, Color, RenderConfig, Styled, StyleSheet};
 use ratatui::backend::CrosstermBackend;
@@ -17,7 +18,7 @@ use url::form_urlencoded;
 use regex::Regex;
 
 use crate::libbc::player::PARK;
-use crate::libbc::http_client::Client;
+use crate::libbc::http_client::{ HttpClient};
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::search::parse_doc;
 use crate::libbc::shared_data::SharedState;
@@ -30,10 +31,10 @@ use crate::models::shared_data_models::{ResultsJson, Track};
 
 pub trait PlayList {
     fn ask(&self) -> Result<PostData>;
-    fn store_results(&self, post_data: PostData) -> Result<()>;
-    fn fill_playlist(&self) -> Result<()>;
+    async fn store_results(&self, post_data: PostData);
+    async fn fill_playlist(&self) -> Result<()>;
     fn discover_index(&self, url: String) -> Result<DiscoverIndexRequest>;
-    fn discover_json(&self, post_data: PostData) -> Result<Vec<Results>>;
+    async fn discover_json(&self, post_data: PostData) -> Result<Vec<Results>>;
     fn choice(&self) -> Result<PostData>;
     fn gen_track_list(&self, items: Vec<Results>) -> Result<VecDeque<Track>>;
     fn top_menu(&self) -> Result<()>;
@@ -52,19 +53,20 @@ impl PlayList for SharedState {
         Ok(post_data)
     }
 
-    fn store_results(&self, post_data: PostData) -> Result<()> {
-        let res = self.discover_json(post_data).unwrap();
-        self.append_tracklist(self.gen_track_list(res)?);
-        Ok(())
+    async fn store_results(&self, post_data: PostData) {
+        let res = self.discover_json(post_data).await.unwrap();
+        let aa = self.gen_track_list(res).unwrap();
+        self.append_tracklist(aa);
+        // Ok(())
     }
 
-    fn fill_playlist(&self) -> Result<()> {
+    async fn fill_playlist(&self) -> Result<()> {
         let l = self.queue_length_from_truck_list();
         if l < 1 {
             match self.next_post().cursor{
                 Some(_) => {
                     let post_data = self.next_post().clone();
-                    let res = self.discover_json(post_data).unwrap();
+                    let res = self.discover_json(post_data).await?;
                     self.append_tracklist(self.gen_track_list(res)?);
                 },
                 None => {
@@ -74,7 +76,7 @@ impl PlayList for SharedState {
 
                     match self.ask() {
                         Ok(post_data)
-                            => self.store_results(post_data).unwrap(),
+                            => self.store_results(post_data).await,
                         _ => quit(Error::from(BcradioError::Quit)),
                     }
                 }
@@ -85,14 +87,11 @@ impl PlayList for SharedState {
 
     fn discover_index(&self, url: String) -> Result<DiscoverIndexRequest>{
 
-        let client: Client = Default::default();
+        let client= HttpClient::default();
         let buf = client
-            .get_curl_request(url)
-            .unwrap()
-            .vec()
-            .unwrap();
+            .get_blocking_request(url);
 
-        let slice = String::from_utf8(buf).unwrap();
+        let slice = String::from_utf8(buf?.res).unwrap();
         let doc = Html::parse_document(&slice);
 
         let c = parse_doc(doc,
@@ -108,14 +107,14 @@ impl PlayList for SharedState {
         }
     }
 
-    fn discover_json(&self, post_data: PostData) -> Result<Vec<Results>>{
+    async fn discover_json(&self, post_data: PostData) -> Result<Vec<Results>>{
         let url = String::from("https://bandcamp.com/api/discover/1/discover_web");
 
-        let client: Client = Default::default();
-        let a = client.post_curl_request(url, post_data.clone()).unwrap().vec().unwrap();
+        let client = HttpClient::default();
+        let a = client.post_request(url, post_data.clone()).await;
 
         let json: Result<DiscoverJsonRequest, serde_json::Error> =
-                serde_json::from_slice(&bytes_mut(a.as_slice())?);
+                serde_json::from_slice(&bytes_mut(a?.res.as_slice())?);
         let cursor = json.as_ref().unwrap().cursor.clone();
         self.set_next_postdata(PostData {
             cursor,
@@ -131,6 +130,7 @@ impl PlayList for SharedState {
         let mut url = String::from("https://bandcamp.com/discover/");
         let mut genre_ans = Ok(String::new());
         let mut skip = false;
+        let mut n = 0;
 
         loop {
             let t = self.discover_index(url.to_string());
@@ -173,10 +173,22 @@ impl PlayList for SharedState {
 
                     return match parent_labels.len() {
                         0 => {
-                            url = format!("https://bandcamp.com/discover?tags={}",
+                            // url = format!("https://bandcamp.com/discover?tags={}", //
+                            url = format!("https://bandcamp.com/discover/{}",
                                                        url_escape(slug(tags.clone())));
                             genre_ans = Ok(slug(tags.clone()));
-                            skip = true;
+
+                            match n {
+                                1.. => {
+                                    n = 0;
+                                    skip = false;
+                                    url = String::from("https://bandcamp.com/discover/");
+                                },
+                                _ => {
+                                    n += 1;
+                                    skip = true;
+                                },
+                            }
                             continue
                         }
                         1 => { // subgenre found, redirect
@@ -319,7 +331,7 @@ impl PlayList for SharedState {
         match self.ask() {
             Ok(post_data) => {
                 self.clear_all_tracklist();
-                self.store_results(post_data).unwrap();
+                block_on(self.store_results(post_data));
             },
             Err(e) => {
                 match e.downcast_ref().unwrap() {
@@ -415,30 +427,20 @@ fn slug(mut s: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use scraper::Html;
-    use crate::libbc::http_client::Client;
-    use crate::libbc::search::parse_doc;
-    use crate::models::bc_discover_json::DiscoverJsonRequest;
-
+    use tokio::runtime::Runtime;
+    pub(crate) fn runtime() -> &'static Runtime {
+        static RUNTIME: once_cell::sync::OnceCell<Runtime> = once_cell::sync::OnceCell::new();
+        RUNTIME.get_or_init(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+        })
+    }
     #[test]
     fn test_url_escape() {
         let s = String::from("all r&b/soul");
         let s = super::slug(s);
         assert_eq!(s, String::from("all-r-b-soul"));
-    }
-    #[test]
-    fn test_json_parse() {
-        let burl = String::from("http://localhost:8080/deep-house");
-
-        let client: Client = Default::default();
-        let buf = client.get_curl_request(burl).unwrap().vec().unwrap();
-        let slice = String::from_utf8(buf).unwrap();
-        let doc = Html::parse_document(&slice);
-
-        let c = parse_doc(doc,
-                          "div[id='DiscoverApp']",
-                          "data-blob").unwrap();
-        let json: Result<DiscoverJsonRequest, simd_json::Error>  = simd_json::from_reader(c.as_bytes());
-        println!("test");
     }
 }

@@ -1,102 +1,90 @@
-use std::collections::HashMap;
-use std::time::Duration;
 
-use anyhow::Result;
-use bytes::BytesMut;
-use curl::easy::{Easy2, HttpVersion, List};
-use curl::multi::{Easy2Handle, Multi};
+use std::future::Future;
+use anyhow::{anyhow, Result};
+use bytes::{Bytes, BytesMut};
+use reqwest::{Client, header};
 use scraper::Html;
 use simd_json::prelude::{ValueAsScalar, ValueObjectAccess};
 use simd_json::OwnedValue as Value;
+use futures::{stream, StreamExt, TryStreamExt};
 
-use crate::debug_println;
-use crate::libbc::args::args_no_ssl_verify;
-use crate::libbc::http_client::{ACCEPT_HEADER, USER_AGENT, Collector};
-use crate::libbc::search::{base_url, parse_doc};
+use crate::libbc::search::{base_url, is_mp3, parse_doc};
 use crate::models::search_models::{Current, ItemPage, TrackInfo};
 use crate::models::shared_data_models::{ResultsJson, Track};
 
-fn download<T>(multi: &mut Multi, token: usize, url: &str) -> Result<Easy2Handle<Collector<T>>> {
-    let mut easy = Easy2::new(Collector {
-        res: Vec::new(),
-        dat: Default::default(),
-    });
-    easy.url(url)?;
-    easy.useragent(USER_AGENT)?;
-    easy.timeout(Duration::new(30, 0))?;
-    easy.pipewait(true)?;
-    easy.http_version(HttpVersion::V2TLS).unwrap();
-    if args_no_ssl_verify() {
-        easy.ssl_verify_peer(false)?;
-    }
 
-    let mut list = List::new();
-    list.append(ACCEPT_HEADER)?;
-    list.append("Accept-Encoding: gzip")?;
-    list.append("Content-Encoding: gzip")?;
-    easy.http_headers(list)?;
+const PARALLEL_REQUESTS: usize = 4;
+type FA<R> = fn(res: Bytes) -> R;
 
-    let mut handle = multi.add2(easy)?;
-    handle.set_token(token)?;
+pub async fn http_adapter<R>(
+    urls: Vec<String>,
+    plug: FA<impl Future<Output = Result<Vec<R>>> + Send + 'static >,
+) -> Result<Vec<R>>
+    where R: Send + 'static
+{
+    let mut headers = header::HeaderMap::new();
+    headers.insert("Accept", header::HeaderValue::from_static("*/*"));
+    headers.insert("Accept-Encoding", header::HeaderValue::from_static("gzip;q=0.4"));
+    headers.insert("Content-Encoding", header::HeaderValue::from_static("gzip"));
+    let client = Client::builder()
+        .use_rustls_tls()
+        .default_headers(headers)
+        .connection_verbose(true)
+        .http2_prior_knowledge()
+        .build()?;
 
-    Ok(handle)
+    stream::iter(urls)
+        .map(|url| {
+            let client = client.clone();
+            tokio::spawn(async move {
+                match client.get(url).send().await {
+                    Ok(r) => {
+                        match r.error_for_status() {
+                            Ok(res) => Ok(res),
+                            Err(e) => Err(anyhow!("status: {}", e))
+                        }
+                    },
+                    Err(e) => Err(anyhow!("response: {}", e))
+                }
+            })
+        })
+        .buffer_unordered(PARALLEL_REQUESTS)
+        .filter_map(|x| async move {
+            x.ok()?.ok()
+        })
+        .map(move |v| {
+            tokio::spawn(async move {
+                plug(v.bytes().await?).await
+            })
+        })
+        .buffer_unordered(PARALLEL_REQUESTS)
+        .filter_map(|x| async move { x.ok() })
+        .try_fold(Vec::<R>::new(), |mut acc, x| async move {
+            for t in x {
+                acc.push(t);
+            }
+            Result::<Vec<R>>::Ok(acc)
+        })
+        .await
 }
 
-pub fn http_adapter<R, T>(
-    urls: Vec<String>,
-    mut a: impl FnMut(&mut Easy2Handle<Collector<T>>),
-    b: impl FnOnce(HashMap<usize, Easy2Handle<Collector<T>>>) -> R,
-) -> Result<R> {
-    let mut multi = Multi::new();
-    let mut handles = urls
-        .iter()
-        .enumerate()
-        .map(|(token, url)|
-            Ok((token, download(&mut multi, token, url).unwrap())))
-        .collect::<Result<HashMap<_, _>>>().unwrap();
-
-    let mut still_alive = true;
-    while still_alive {
-        if multi.perform().unwrap() == 0 {
-            still_alive = false;
-        }
-
-        multi.messages(|message| {
-            let token = message.token().expect("failed to get the token");
-            let handle = handles
-                .get_mut(&token)
-                .expect("the download value should exist in the HashMap");
-
-            match message
-                .result_for2(handle)
-                .expect("token mismatch with the `EasyHandle`")
-            {
-                Ok(()) => {
-                    let _http_status = handle
-                        .response_code()
-                        .expect("HTTP request finished without status code");
-
-                    debug_println!(
-                        "R: Transfer succeeded (Status: {}) {} (Download length: {})\r",
-                        _http_status,
-                        urls[token],
-                        handle.get_ref().res.len()
-                    );
-
-                    a(handle);
-                }
-                Err(_e) => {
-                    debug_println!("E: {} - <{}>\r", _e, urls[token]);
-                }
+pub async fn html_to_track(v: Bytes) -> Result<Vec<Track>> {
+    match ! v.is_empty() {
+        true => {
+            match html_to_json(v.to_vec()) {
+                Ok(t) => j2t(t),
+                _ => Ok(Vec::new())
             }
-        });
-
-        if still_alive {
-            multi.wait(&mut [], Duration::from_secs(6)).unwrap();
-        }
+        },
+        _ => Ok(Vec::new())
     }
+}
 
-    Ok(b(handles))
+pub async fn mp3(v: Bytes) -> Result<Vec<Vec<u8>>> {
+    match is_mp3(v.to_vec()) {
+        true => Ok(vec!(v.to_vec())),
+        _ => Ok(Vec::new())
+    }
 }
 
 pub fn html_to_json(res: Vec<u8>) -> Result<Value> {
@@ -112,7 +100,7 @@ pub fn html_to_json(res: Vec<u8>) -> Result<Value> {
     Ok(simd_json::from_slice(&mut b)?)
 }
 
-fn j2t(json: Value) -> Result<Vec<Track>> {
+pub fn j2t(json: Value) -> Result<Vec<Track>> {
     let item_url = json["url"].to_string();
     let base_item_url = base_url(item_url.clone());
     let item_path = match json.get("album_url") {
@@ -162,8 +150,4 @@ fn j2t(json: Value) -> Result<Vec<Track>> {
         v.push(t);
     }
     Ok(v)
-}
-
-pub fn json_to_track(json: Value) -> Result<Vec<Track>> {
-    j2t(json)
 }
