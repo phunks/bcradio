@@ -62,8 +62,7 @@ impl HttpClient {
                 .build().unwrap();
 
             let r = client.get(url).send().unwrap();
-            let res = r.bytes().unwrap().to_vec();
-            res
+            r.bytes().unwrap().to_vec()
         });
 
         Ok(Self{res})
@@ -108,50 +107,4 @@ impl HttpClient {
         Ok(Self{res})
     }
 }
-
-// pub struct Collector<T> {
-//     pub res: Vec<u8>,
-//     pub dat: Vec<T>,
-// }
-// impl<T> Handler for Collector<T> {
-//     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
-//         self.res.extend_from_slice(data);
-//         Ok(data.len())
-//     }
-// }
-//
-// pub fn decoder(v: Vec<u8>) -> Vec<u8> {
-//     match v[0] {
-//         b'\x78' => {
-//             match v[1] {
-//                 b'\x01' | b'\x5E' | b'\x9C' | b'\xDA' => zlib_decoder(v).unwrap(),
-//                 _ => v, // no compression
-//             }
-//         }
-//         b'\x1F' => gz_decoder(v).unwrap(),
-//         _ => v,
-//     }
-// }
-//
-// #[allow(dead_code)]
-// fn deflate_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
-//     let mut deflater = DeflateDecoder::new(&bytes[..]);
-//     let mut s: Vec<u8> = Vec::new();
-//     deflater.read_to_end(&mut s)?;
-//     Ok(s)
-// }
-//
-// pub fn zlib_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
-//     let mut z = ZlibDecoder::new(&bytes[..]);
-//     let mut s: Vec<u8> = Vec::new();
-//     z.read_to_end(&mut s)?;
-//     Ok(s)
-// }
-//
-// pub fn gz_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
-//     let mut gz = bufread::GzDecoder::new(&bytes[..]);
-//     let mut s: Vec<u8> = Vec::new();
-//     gz.read_to_end(&mut s)?;
-//     Ok(s)
-// }
 

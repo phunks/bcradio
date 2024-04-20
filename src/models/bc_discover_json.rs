@@ -105,15 +105,15 @@ pub struct Package {
     pub title: String,
     pub format: String,
     pub image_id: i64,
-    pub price: Price,
+    price: Price,
     pub type_id: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Price {
-    pub amount: i64,
-    pub currency: String,
-    pub is_money: bool,
+    amount: i64,
+    currency: String,
+    is_money: bool,
 }
 
 impl Clone for Package {

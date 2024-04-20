@@ -7,14 +7,13 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use chrono::Local;
 
 use crate::debug_println;
 use crate::libbc::http_adapter::{http_adapter, mp3};
 use crate::models::bc_discover_index::{Element, PostData};
 use crate::libbc::progress_bar::{Bar, Progress};
-use crate::models::bc_error::BcradioError;
 use crate::models::shared_data_models::{CurrentTrack, State, Track};
 
 #[derive(Default, Debug)]
