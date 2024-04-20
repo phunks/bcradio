@@ -92,7 +92,7 @@ impl Progress<'static> for Bar<'static> {
         };
         let b = self.clone();
         let progress_bar_style = ProgressStyle::with_template(
-            "  {wide_bar} {progress_info} {spinner:.dim.bold} ",
+            "{prefix}  {wide_bar} {progress_info} {spinner:.dim.bold} ",
         ).unwrap()
             .tick_chars("⠁⠂⠄⡀⠄⠂ ")
             .with_key(
@@ -149,7 +149,8 @@ impl Progress<'static> for Bar<'static> {
             .set_draw_target(ProgressDrawTarget::stdout());
 
         execute!(stdout(),
-            cursor::MoveUp(1)
+            cursor::MoveUp(1),
+            cursor::Hide
         ).unwrap();
     }
 

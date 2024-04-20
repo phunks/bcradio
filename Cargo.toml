@@ -21,9 +21,6 @@ chrono = { version = "0.4.34"}
 clap = { version = "4.5.1", features = ["derive"] }
 colored = { version = "2.1.0" }
 cpal = { version = "0.15.2", features = ["asio"] }
-crossbeam = { version = "0.8.4" }
-crossbeam-channel = { version = "0.5.11" }
-crossbeam-utils = { version = "0.8.19" }
 crossterm = { version = "0.27.0" }
 futures = { version = "0.3.30" }
 indicatif = { version = "0.17.8" }
@@ -33,7 +30,7 @@ mp3-duration = { version = "0.1.10" }
 once_cell = { version = "1.19.0" }
 ratatui = { version = "0.26.1" }
 rodio = { version = "0.17.3", features = ["symphonia", "symphonia-mp3" ] }
-scraper = { version = "0.18.1" }
+scraper = { version = "0.19.0" }
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = { version = "1.0.114" }
 symphonia = { version = "0.5.3" }
@@ -42,15 +39,14 @@ tui-textarea = { version = "0.4.0" }
 url = { version = "2.5.0"}
 ctrlc = { version = "3.4.2" }
 thiserror = { version = "1.0.57" }
-curl = { version = "0.4.46", features = ["http2"] }
 simd-json = { version = "0.13.8" }
 bytes = { version = "1.5.0" }
-flate2 = { version = "1.0.28" }
-regex = { version = "1.10.3" }
-chrono-tz = { version = "0.8.6" }
+regex = { version = "1.10.4" }
+chrono-tz = { version = "0.9.0" }
 viu = { path = "external/viu", version = "1.5.0" }
 viuer = { version = "0.7.1" }
 itertools = { version = "0.12.1" }
+reqwest = { version = "0.12.2",default-features = false, features = ["rustls-tls", "http2", "gzip", "blocking", "trust-dns"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0" }

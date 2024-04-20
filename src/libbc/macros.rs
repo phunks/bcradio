@@ -65,3 +65,16 @@ macro_rules! vec_of_strings {
 macro_rules! format_duration {
     ($($x:expr), *) =>(format!("{:02}:{:02}", $($x / 60, $x % 60),*));
 }
+
+#[macro_export]
+macro_rules! measure {
+  ( $x:expr) => {
+    {
+      let start = std::time::Instant::now();
+      let result = $x;
+      let end = start.elapsed();
+      println!("{}.{:03} sec elapsed.", end.as_secs(), end.subsec_millis());
+      result
+    }
+  };
+}

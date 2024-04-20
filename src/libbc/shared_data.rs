@@ -1,22 +1,20 @@
 
 use std::clone::Clone;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::io;
 use std::iter::Iterator;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use chrono::Local;
-use curl::multi::Easy2Handle;
 
 use crate::debug_println;
-use crate::libbc::http_adapter::http_adapter;
+use crate::libbc::http_adapter::{http_adapter, mp3};
 use crate::models::bc_discover_index::{Element, PostData};
 use crate::libbc::progress_bar::{Bar, Progress};
-use crate::libbc::http_client::Collector;
-use crate::libbc::search::is_mp3;
+use crate::models::bc_error::BcradioError;
 use crate::models::shared_data_models::{CurrentTrack, State, Track};
 
 #[derive(Default, Debug)]
@@ -50,9 +48,12 @@ impl SharedState {
                 self.bar.enable_spinner();
                 let url = self.get_track_url(i);
 
-                let buf = match http_adapter(vec!(url), response_filter, mp3_output) {
+                let buf = match http_adapter(vec!(url), mp3).await {
                     Ok(v) => {
-                        v.first().unwrap().clone().unwrap()
+                        match v.first() {
+                            None => { panic!("Unreachable") }
+                            Some(v) => v.clone()
+                        }
                     },
                     Err(e) => return Err(e),
                 };
@@ -182,24 +183,3 @@ impl SharedState {
     }
 }
 
-fn response_filter(handle: &mut Easy2Handle<Collector<Option<Vec<u8>>>>) {
-    match handle.response_code() {
-        Ok(200) => handle.get_mut().dat = vec!(Option::from(handle.get_ref().res.clone())),
-        _ => handle.get_mut().dat = vec!(None),
-    }
-}
-
-fn mp3_output(handles: HashMap<usize, Easy2Handle<Collector<Option<Vec<u8>>>>>) -> Vec<Option<Vec<u8>>> {
-    let mut v = Vec::<Option<Vec<u8>>>::new();
-    handles.iter().for_each(|x|{
-        x.1.get_ref().dat.iter().for_each(|x|
-            if let Some(aa) = x.clone() {
-                match is_mp3(aa) {
-                    true => v.append(&mut vec![x.clone()]),
-                    false => {},
-                }
-            }
-        )
-    });
-    v
-}

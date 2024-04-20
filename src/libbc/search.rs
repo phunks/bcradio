@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+
+use std::convert::TryInto;
 use std::io;
 use anyhow::{Error, Result};
 use async_trait::async_trait;
@@ -8,7 +9,6 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use crossterm::*;
-use curl::multi::Easy2Handle;
 use inquire::MultiSelect;
 use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::Borders;
@@ -17,17 +17,17 @@ use scraper::{Html, Selector};
 use itertools::Itertools;
 use regex::Regex;
 use tui_textarea::{Input, Key, TextArea};
-use crate::debug_println;
 
-use crate::libbc::http_adapter::{html_to_json, http_adapter, json_to_track};
-use crate::libbc::http_client::{Client, Collector, decoder};
+use crate::debug_println;
+use crate::libbc::http_adapter::{html_to_track, http_adapter};
+use crate::libbc::http_client::{HttpClient};
 use crate::libbc::player::PARK;
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::terminal::{clear_screen, draw};
 use crate::models::bc_error::BcradioError;
 use crate::models::search_models::{SearchJsonRequest, SearchJsonResponse};
-use crate::models::shared_data_models::Track;
+
 
 #[async_trait]
 pub trait Search {
@@ -51,11 +51,11 @@ impl Search for SharedState {
             fan_id: None,
         };
 
-        let client = Client::default();
-        let val = client.post_curl_request(url, search_json_req)?.vec()?;
+        let client = HttpClient::default();
+        let val = client.post_request(url, search_json_req).await?;
 
         let search_json_response =
-            simd_json::from_slice::<SearchJsonResponse>(val.clone().as_mut_slice())?;
+            simd_json::from_slice::<SearchJsonResponse>(val.clone().res.as_mut_slice())?;
         let mut v: Vec<String> = Vec::new();
         for search_item in search_json_response.auto.results {
             if let Some(url) = search_item.item_url_path.to_owned() {
@@ -68,7 +68,8 @@ impl Search for SharedState {
 
         use std::time::Instant; //debug
         let _start = Instant::now(); //debug
-        let mut r = http_adapter(url_list, collector, multi_output)?;
+
+        let mut r = http_adapter(url_list, html_to_track).await?;
         debug_println!("Debug http_adapter: {:?}\r", _start.elapsed()); //debug
 
         self.bar.disable_spinner();
@@ -179,22 +180,6 @@ pub fn base_url(item_url: String) -> String {
     re.replace(item_url.as_str(), "$1").to_string()
 }
 
-fn collector(handle: &mut Easy2Handle<Collector<Track>>)
-{
-    let html = decoder(handle.get_ref().res.clone());
-    if let Ok(t) = html_to_json(html) { handle.get_mut().dat = json_to_track(t).unwrap() }
-}
-
-fn multi_output(handles: HashMap<usize, Easy2Handle<Collector<Track>>>) -> Vec<Track> {
-    let mut v = Vec::<Track>::new();
-    handles.iter().for_each(|x|{
-        #[allow(clippy::len_zero)]
-        if x.1.get_ref().dat.len() > 0 {
-            v.append(&mut x.1.get_ref().dat.clone())
-        }
-    });
-    v
-}
 
 const MP3_SIGNATURE_1: [u8; 2] = [0xFF, 0xFB];
 const MP3_SIGNATURE_2: [u8; 2] = [0xFF, 0xF3];

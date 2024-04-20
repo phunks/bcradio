@@ -1,153 +1,157 @@
-use std::io;
-use std::io::Read;
-use std::time::Duration;
 
+use std::time::Duration;
 use anyhow::{Error, Result};
-use curl::easy::{Easy2, Handler, HttpVersion, List, WriteError};
-use flate2::bufread;
-use flate2::bufread::{DeflateDecoder, ZlibDecoder};
+use reqwest::{Client, header};
 use serde::Serialize;
 
 use crate::debug_println;
 use crate::libbc::args::args_no_ssl_verify;
 
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100";
-pub const ACCEPT_HEADER: &str = "Accept: application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*";
-#[derive(Debug, Clone)]
-pub struct Client {
-    res: Vec<u8>,
-    status: core::result::Result<u32, curl::Error>,
+#[derive(Debug, Clone, Default)]
+pub struct HttpClient {
+    pub res: Vec<u8>,
 }
 
-impl Default for Client {
-    fn default() -> Self {
-        Self {
-            res: vec![],
-            status: Ok(0),
-        }
-    }
-}
-impl Client {
-    //blocking
-    pub fn get_curl_request(mut self, url: String) -> Result<Client> {
-        debug_println!("debug: get_curl_request {}\r", url);
-
-        let mut easy = Easy2::new(Collector::<String> {
-            res: Vec::new(),
-            dat: Default::default(),
-        });
-        easy.get(true)?;
-        easy.follow_location(true)?;
-        easy.url(&url).unwrap();
-        easy.http_version(HttpVersion::V2TLS)?;
+impl HttpClient {
+    #[allow(dead_code)]
+    pub async fn get_request(self, url: String) -> Result<Vec<u8>> {
+        debug_println!("debug: get_request {}\r", url);
+        let mut no_ssl_verify = false;
         if args_no_ssl_verify() {
-            easy.ssl_verify_peer(false)?;
+            no_ssl_verify = true;
         }
+        let mut headers = header::HeaderMap::new();
+        headers.insert("Accept", header::HeaderValue::from_static("*/*"));
 
-        let mut list = List::new();
-        list.append(ACCEPT_HEADER)?;
-        list.append("Accept-Encoding: gzip")?;
-        list.append("Content-Encoding: gzip")?;
+        let client = Client::builder()
+            .danger_accept_invalid_certs(no_ssl_verify)
+            .use_rustls_tls()
+            .default_headers(headers)
+            .connection_verbose(true)
+            .http2_prior_knowledge()
+            .gzip(true)
+            .timeout(Duration::new(60, 0))
+            .user_agent(USER_AGENT)
+            .build().unwrap();
 
-        easy.http_headers(list)?;
-        easy.useragent(USER_AGENT)?;
-        easy.timeout(Duration::new(60, 0))?;
-        easy.perform().expect("Couldn't connect to server");
-        let v = easy.get_ref().res.to_vec();
-
-        self.res = decoder(v);
-        self.status = easy.response_code();
-
-        Ok(self)
+        let r = client.get(url).send().await.unwrap();
+        let res = r.bytes().await.unwrap().to_vec();
+        Ok(res)
     }
 
-    pub fn post_curl_request<T>(mut self, url: String, post_data: T) -> Result<Client>
+    pub fn get_blocking_request(self, url: String) -> Result<Self> {
+        debug_println!("debug: get_blocking_request {}\r", url);
+        let mut no_ssl_verify = false;
+        if args_no_ssl_verify() {
+            no_ssl_verify = true;
+        }
+        let mut headers = header::HeaderMap::new();
+        headers.insert("Accept", header::HeaderValue::from_static(
+            "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"));
+        let res = tokio::task::block_in_place(|| {
+            let client = reqwest::blocking::Client::builder()
+                .danger_accept_invalid_certs(no_ssl_verify)
+                .use_rustls_tls()
+                .default_headers(headers)
+                .connection_verbose(true)
+                .http2_prior_knowledge()
+                .gzip(true)
+                .timeout(Duration::new(60, 0))
+                .user_agent(USER_AGENT)
+                .build().unwrap();
+
+            let r = client.get(url).send().unwrap();
+            let res = r.bytes().unwrap().to_vec();
+            res
+        });
+
+        Ok(Self{res})
+    }
+
+
+    pub async fn post_request<T>(self, url: String, post_data: T) -> Result<Self>
     where
         T: Serialize,
     {
-        debug_println!("debug: post_curl_request {}\r", url);
-        let mut easy = Easy2::new(Collector::<String> {
-            res: Vec::new(),
-            dat: Default::default(),
-        });
-        easy.post(true).unwrap();
-        easy.url(&url).unwrap();
+        debug_println!("debug: post_request {}\r", url);
+        let mut no_ssl_verify = false;
         if args_no_ssl_verify() {
-            easy.ssl_verify_peer(false)?;
+            no_ssl_verify = true;
         }
-        let mut list = List::new();
-        list.append("Accept: */*")?;
-        list.append("Accept-Encoding: gzip;q=0.4")?;
-        list.append("Content-Encoding: gzip")?;
-        match serde_json::to_string(&post_data) {
+
+        let mut headers = header::HeaderMap::new();
+        headers.insert("Accept", header::HeaderValue::from_static(
+            "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"));
+        headers.insert("Accept-Encoding", header::HeaderValue::from_static("gzip;q=0.4"));
+        headers.insert("Content-Encoding", header::HeaderValue::from_static("gzip"));
+        headers.insert("Content-Type", header::HeaderValue::from_static("application/json"));
+
+        let client = Client::builder()
+            .danger_accept_invalid_certs(no_ssl_verify)
+            .use_rustls_tls()
+            .connection_verbose(true)
+            .http2_prior_knowledge()
+            .timeout(Duration::new(60, 0))
+            .user_agent(USER_AGENT)
+            .build()?;
+
+        let r = match serde_json::to_string(&post_data) {
             Ok(body) => {
                 debug_println!("debug: post_data {}\r", body);
-                list.append("Content-Type: application/json")?;
-                easy.post_fields_copy((*body).as_ref())?;
+                client.post(url).body(body).send().await?
             }
             Err(e) => return Err(Error::from(e)),
-        }
-        easy.http_headers(list)?;
-        easy.useragent(USER_AGENT)?;
-        easy.timeout(Duration::new(60, 0))?;
+        };
 
-        easy.perform().expect("Couldn't connect to server");
-        let v = easy.get_ref().res.to_vec();
-
-        self.res = decoder(v);
-        self.status = easy.response_code();
-
-        Ok(self)
-    }
-
-    pub fn vec(self) -> Result<Vec<u8>> {
-        Ok(self.res)
+        let res = r.bytes().await?.to_vec();
+        Ok(Self{res})
     }
 }
 
-pub struct Collector<T> {
-    pub res: Vec<u8>,
-    pub dat: Vec<T>,
-}
-impl<T> Handler for Collector<T> {
-    fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
-        self.res.extend_from_slice(data);
-        Ok(data.len())
-    }
-}
-
-pub fn decoder(v: Vec<u8>) -> Vec<u8> {
-    match v[0] {
-        b'\x78' => {
-            match v[1] {
-                b'\x01' | b'\x5E' | b'\x9C' | b'\xDA' => zlib_decoder(v).unwrap(),
-                _ => v, // no compression
-            }
-        }
-        b'\x1F' => gz_decoder(v).unwrap(),
-        _ => v,
-    }
-}
-
-#[allow(dead_code)]
-fn deflate_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
-    let mut deflater = DeflateDecoder::new(&bytes[..]);
-    let mut s: Vec<u8> = Vec::new();
-    deflater.read_to_end(&mut s)?;
-    Ok(s)
-}
-
-pub fn zlib_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
-    let mut z = ZlibDecoder::new(&bytes[..]);
-    let mut s: Vec<u8> = Vec::new();
-    z.read_to_end(&mut s)?;
-    Ok(s)
-}
-
-pub fn gz_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
-    let mut gz = bufread::GzDecoder::new(&bytes[..]);
-    let mut s: Vec<u8> = Vec::new();
-    gz.read_to_end(&mut s)?;
-    Ok(s)
-}
+// pub struct Collector<T> {
+//     pub res: Vec<u8>,
+//     pub dat: Vec<T>,
+// }
+// impl<T> Handler for Collector<T> {
+//     fn write(&mut self, data: &[u8]) -> Result<usize, WriteError> {
+//         self.res.extend_from_slice(data);
+//         Ok(data.len())
+//     }
+// }
+//
+// pub fn decoder(v: Vec<u8>) -> Vec<u8> {
+//     match v[0] {
+//         b'\x78' => {
+//             match v[1] {
+//                 b'\x01' | b'\x5E' | b'\x9C' | b'\xDA' => zlib_decoder(v).unwrap(),
+//                 _ => v, // no compression
+//             }
+//         }
+//         b'\x1F' => gz_decoder(v).unwrap(),
+//         _ => v,
+//     }
+// }
+//
+// #[allow(dead_code)]
+// fn deflate_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
+//     let mut deflater = DeflateDecoder::new(&bytes[..]);
+//     let mut s: Vec<u8> = Vec::new();
+//     deflater.read_to_end(&mut s)?;
+//     Ok(s)
+// }
+//
+// pub fn zlib_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
+//     let mut z = ZlibDecoder::new(&bytes[..]);
+//     let mut s: Vec<u8> = Vec::new();
+//     z.read_to_end(&mut s)?;
+//     Ok(s)
+// }
+//
+// pub fn gz_decoder(bytes: Vec<u8>) -> io::Result<Vec<u8>> {
+//     let mut gz = bufread::GzDecoder::new(&bytes[..]);
+//     let mut s: Vec<u8> = Vec::new();
+//     gz.read_to_end(&mut s)?;
+//     Ok(s)
+// }
 

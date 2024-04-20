@@ -12,7 +12,7 @@ use rodio::Sink;
 
 use crate::{ceil, format_duration};
 use crate::libbc::args::{about};
-use crate::libbc::http_client::Client;
+use crate::libbc::http_client::HttpClient;
 use crate::libbc::playlist::PlayList;
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::search::Search;
@@ -48,7 +48,7 @@ impl Player<'static> for SharedState {
 
         match state.ask() {
             Ok(post_data)
-                => state.store_results(post_data),
+                => state.store_results(post_data).await,
             Err(e)
                 => quit(e),
         };
@@ -60,7 +60,7 @@ impl Player<'static> for SharedState {
 
         loop {
             if sink.empty() {
-                state.fill_playlist()?;
+                state.fill_playlist().await?;
             }
             state.enqueue_truck_buffer().await?;
             play(&state, &sink).await?;
@@ -197,9 +197,9 @@ fn info(state: &SharedState) -> Result<()> {
     match state.get_current_art_id() {
         Some(art_id) => {
             let url = format!("https://f4.bcbits.com/img/a{}_16.jpg", art_id);
-            let client: Client = Default::default();
-            let img = client.get_curl_request(url).unwrap().vec()?;
-            show_alt_term(v, Option::from(img))?;
+            let client: HttpClient = Default::default();
+            let img = client.get_blocking_request(url);
+            show_alt_term(v, Option::from(img?.res))?;
         },
         None => show_alt_term(v, None)?
     }
