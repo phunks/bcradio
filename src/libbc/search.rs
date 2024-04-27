@@ -1,5 +1,4 @@
 
-use std::convert::TryInto;
 use std::io;
 use anyhow::{Error, Result};
 use async_trait::async_trait;
@@ -178,27 +177,6 @@ pub fn parse_doc(doc: Html, parse: &str, attribute: &str) -> Result<String> {
 pub fn base_url(item_url: String) -> String {
     let re = Regex::new("(https?://.*?)/.*").unwrap();
     re.replace(item_url.as_str(), "$1").to_string()
-}
-
-
-const MP3_SIGNATURE_1: [u8; 2] = [0xFF, 0xFB];
-const MP3_SIGNATURE_2: [u8; 2] = [0xFF, 0xF3];
-const MP3_SIGNATURE_3: [u8; 2] = [0xFF, 0xF2];
-const MP3_SIGNATURE_4: [u8; 2] = [0xFF, 0xFA];
-//0x49, 0x44, 0x43
-const MP3_SIGNATURE_5: [u8; 2] = [0x49, 0x44];
-
-pub fn is_mp3(v: Vec<u8>) -> bool {
-    match v.get(0..2) {
-        Some(mp3)
-        => matches!(mp3.try_into().unwrap(),
-                MP3_SIGNATURE_1
-                | MP3_SIGNATURE_2
-                | MP3_SIGNATURE_3
-                | MP3_SIGNATURE_4
-                | MP3_SIGNATURE_5 ),
-        _ => false,
-    }
 }
 
 

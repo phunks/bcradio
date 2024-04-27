@@ -106,5 +106,45 @@ impl HttpClient {
         let res = r.bytes().await?.to_vec();
         Ok(Self{res})
     }
+
+    #[allow(dead_code)]
+    pub fn post_blocking_request<T>(self, url: String, post_data: T) -> Result<Self>
+        where
+            T: Serialize,
+    {
+        debug_println!("debug: post_request {}\r", url);
+        let mut no_ssl_verify = false;
+        if args_no_ssl_verify() {
+            no_ssl_verify = true;
+        }
+
+        let mut headers = header::HeaderMap::new();
+        headers.insert("Accept", header::HeaderValue::from_static(
+            "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"));
+        headers.insert("Accept-Encoding", header::HeaderValue::from_static("gzip;q=0.4"));
+        headers.insert("Content-Encoding", header::HeaderValue::from_static("gzip"));
+        headers.insert("Content-Type", header::HeaderValue::from_static("application/json"));
+
+        let client = reqwest::blocking::Client::builder()
+            .danger_accept_invalid_certs(no_ssl_verify)
+            .use_rustls_tls()
+            .connection_verbose(true)
+            .http2_prior_knowledge()
+            .timeout(Duration::new(60, 0))
+            .user_agent(USER_AGENT)
+            .default_headers(headers)
+            .build()?;
+
+        let r = match serde_json::to_string(&post_data) {
+            Ok(body) => {
+                debug_println!("debug: post_data {}\r", body);
+                client.post(url).body(body).send()?
+            }
+            Err(e) => return Err(Error::from(e)),
+        };
+
+        let res = r.bytes()?.to_vec();
+        Ok(Self{res})
+    }
 }
 

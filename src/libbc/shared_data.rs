@@ -11,7 +11,7 @@ use anyhow::Result;
 use chrono::Local;
 
 use crate::debug_println;
-use crate::libbc::http_adapter::{http_adapter, mp3};
+use crate::libbc::http_client::HttpClient;
 use crate::models::bc_discover_index::{Element, PostData};
 use crate::libbc::progress_bar::{Bar, Progress};
 use crate::models::shared_data_models::{CurrentTrack, State, Track};
@@ -47,13 +47,9 @@ impl SharedState {
                 self.bar.enable_spinner();
                 let url = self.get_track_url(i);
 
-                let buf = match http_adapter(vec!(url), mp3).await {
-                    Ok(v) => {
-                        match v.first() {
-                            None => { panic!("Unreachable") }
-                            Some(v) => v.clone()
-                        }
-                    },
+                let client = HttpClient::default();
+                let buf= match client.get_request(url).await {
+                    Ok(v) => v,
                     Err(e) => return Err(e),
                 };
 

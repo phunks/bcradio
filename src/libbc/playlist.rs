@@ -14,7 +14,6 @@ use ratatui::Terminal;
 use ratatui::widgets::Borders;
 use scraper::Html;
 use tui_textarea::TextArea;
-use url::form_urlencoded;
 use regex::Regex;
 
 use crate::libbc::player::PARK;
@@ -26,6 +25,7 @@ use crate::libbc::terminal;
 use crate::libbc::terminal::quit;
 use crate::models::bc_discover_index::{DiscoverIndexRequest, Element, PostData};
 use crate::models::bc_discover_json::{DiscoverJsonRequest, Results};
+use crate::models::bc_discover_tags::{DiscoverTagsJson, Struct, TagsPostData};
 use crate::models::bc_error::BcradioError;
 use crate::models::shared_data_models::{ResultsJson, Track};
 
@@ -35,6 +35,7 @@ pub trait PlayList {
     async fn fill_playlist(&self) -> Result<()>;
     fn discover_index(&self, url: String) -> Result<DiscoverIndexRequest>;
     async fn discover_json(&self, post_data: PostData) -> Result<Vec<Results>>;
+    async fn discover_tags_json(&self, post_data: TagsPostData) -> Result<Vec<Element>>;
     fn choice(&self) -> Result<PostData>;
     fn gen_track_list(&self, items: Vec<Results>) -> Result<VecDeque<Track>>;
     fn top_menu(&self) -> Result<()>;
@@ -122,20 +123,45 @@ impl PlayList for SharedState {
         Ok(json?.results)
     }
 
+    async fn discover_tags_json(&self, post_data: TagsPostData) -> Result<Vec<Element>> {
+        let url = String::from("https://bandcamp.com/api/tag_search/2/related_tags");
+
+        let client = HttpClient::default();
+        let a = client.post_request(url, post_data).await;
+
+        let json: Result<DiscoverTagsJson, serde_json::Error> =
+            serde_json::from_slice(&bytes_mut(a?.res.as_slice())?);
+        let s = match json.unwrap_or_else(|_| DiscoverTagsJson::default()).single_results.first() {
+            None => {Struct::default()}
+            Some(a) => a.clone()
+        };
+
+        let bb = s.to_owned().related_tags;
+
+        Ok(bb.iter().map(|x| Element {
+            id: x.id,
+            label: x.clone().name,
+            slug: x.clone().norm_name,
+            selected: None,
+            parent_slug: None,
+        }).collect::<Vec::<Element>>())
+    }
+
     fn choice(&self) -> Result<PostData> {
         *PARK.lock().unwrap() = false;
         inquire::set_global_render_config(render_config());
-
-        let mut url = String::from("https://bandcamp.com/discover/");
-        let mut genre_ans = Ok(String::new());
-        let mut skip = false;
-        let mut n = 0;
+        let url = String::from("https://bandcamp.com/discover/");
+        let mut _genre_ans = Ok(String::new());
 
         loop {
-            let t = self.discover_index(url.to_string());
-            let (g,t) = match t {
-                Ok(t) => {
-                    let g = t.app_data.initial_state.genres;
+            let r = self.discover_index(url.to_string());
+            let (g, t) = match r {
+                Ok(mut t) => {
+                    let mut g = vec!(Element {
+                        label: "all genres".to_string(),
+                        ..Default::default()
+                    });
+                    g.append(&mut t.app_data.initial_state.genres);
                     let t = t.app_data.initial_state.subgenres;
                     self.save_genres(g.clone(), t.clone());
 
@@ -144,51 +170,77 @@ impl PlayList for SharedState {
                 Err(_) => self.get_genres(),
             };
 
-            if !skip {
-                genre_ans = Select::new("genre?",
-                            g.iter().map(|x| x.label.clone()).collect())
-                    .with_raw_return(true)
-                    .prompt();
+            _genre_ans = Select::new("genre?",
+                                     g.iter().map(|x| x.label.clone()).collect())
+                .with_raw_return(true)
+                .prompt();
 
-                match genre_ans {
-                    Ok(ref choice) => self.set_genre(choice),
-                    Err(e) => match e {
-                        InquireError::OperationCanceled
-                            => return Err(Error::from(BcradioError::Cancel)),
-                        InquireError::OperationInterrupted
-                            => return Err(Error::from(BcradioError::OperationInterrupted)),
-                        other_error
-                            => panic!("inquire error: {:?}", other_error),
-                    }
+            match _genre_ans {
+                Ok(ref choice) => self.set_genre(choice),
+                Err(e) => match e {
+                    InquireError::OperationCanceled
+                        => return Err(Error::from(BcradioError::Cancel)),
+                    InquireError::OperationInterrupted
+                        => return Err(Error::from(BcradioError::OperationInterrupted)),
+                    other_error
+                        => panic!("inquire error: {:?}", other_error),
                 }
             }
 
-            let element = pick_element(g.clone(), genre_ans.as_ref());
+            let element = pick_element(g.clone(), _genre_ans.as_ref());
             match element {
-                Some(ref genre) => genre,
+                Some(ref genre) => {
+                    if genre.label.starts_with("all genres") {
+                        return Ok(PostData {
+                            tag_norm_names: Vec::new(),
+                            ..Default::default()
+                        })
+                    }
+                },
                 None => { // tag request
-                    let parent_labels = genre_list(t, g, genre_ans.as_ref().unwrap().clone());
-                    let tags = genre_ans.as_ref().unwrap().clone();
+                    let parent_labels = genre_list(t, g, _genre_ans.as_ref().unwrap().clone());
+                    let tags = _genre_ans.as_ref().unwrap().clone();
 
                     return match parent_labels.len() {
                         0 => {
-                            url = format!("https://bandcamp.com/discover/{}",
-                                                       url_escape(slug(tags.clone())));
-                            genre_ans = Ok(slug(tags.clone()));
-
-                            match n {
-                                1.. => {
-                                    n = 0;
-                                    skip = false;
-                                    url = String::from("https://bandcamp.com/discover/");
-                                },
-                                _ => {
-                                    n += 1;
-                                    skip = true;
-                                },
+                            let mut subgenres = Vec::<Element>::new();
+                            let mut a = block_on(self.discover_tags_json(
+                                TagsPostData {
+                                    tag_names: vec![slug(tags.clone())],
+                                    ..Default::default()
+                                }))?;
+                            if !a.is_empty() {
+                                subgenres = vec!(Element {
+                                    label: format!("all \"{}\"", _genre_ans.as_ref().unwrap()),
+                                    ..Default::default()
+                                });
+                                subgenres.append(&mut a);
                             }
-                            continue
-                        }
+
+                            let mut tags = vec!(slug(_genre_ans.as_ref().unwrap().to_string()));
+                            match Select::new("sub genre?",
+                                        subgenres.iter().map(|x| x.label.clone()).collect())
+                                .with_raw_return(false)
+                                .prompt() {
+                                Ok(ref choice) => {
+                                    self.set_subgenre("");
+                                    if !choice.starts_with("all") {
+                                        tags.append(&mut vec![slug(choice.to_owned())]);
+                                        self.set_subgenre(choice);
+                                    }
+                                },
+                                Err(e) => match e {
+                                    InquireError::OperationInterrupted
+                                        => return Err(Error::from(BcradioError::OperationInterrupted)),
+                                    _ => continue,
+                                }
+                            };
+
+                            Ok(PostData {
+                                tag_norm_names: tags,
+                                ..Default::default()
+                            })
+                        },
                         1 => { // subgenre found, redirect
                             self.set_genre(&parent_labels[0]);
                             self.set_subgenre(&tags);
@@ -213,8 +265,7 @@ impl PlayList for SharedState {
                                     => return Err(Error::from(BcradioError::Cancel)),
                                     InquireError::OperationInterrupted
                                     => return Err(Error::from(BcradioError::OperationInterrupted)),
-                                    other_error
-                                    => panic!("inquire error: {:?}", other_error),
+                                    _ => continue,
                                 }
                             };
                             self.set_genre(ans);
@@ -230,56 +281,48 @@ impl PlayList for SharedState {
                     }
                 },
             };
-            let subgenres = t
+
+            let mut a = t
                 .iter()
-                .filter(|&x| x.parent_id.unwrap() == element.clone().unwrap().id)
+                .filter(|&x| x.to_owned().parent_slug.unwrap() == element.clone().unwrap().slug)
                 .cloned()
                 .collect::<Vec<Element>>();
 
-            return if subgenres.is_empty() {
+            return if a.is_empty() { // audiobooks, podcasts..
                 self.set_subgenre("");
+
                 Ok(PostData {
-                    tag_norm_names: vec![
-                        element.unwrap().slug.to_string()
-                    ],
+                    tag_norm_names: vec!(element.unwrap().slug.to_string()),
                     ..Default::default()
                 })
             } else {
-                let subgenre_ans = Select::new("sub genre?",
-                        subgenres.iter().map(|x| x.label.clone()).collect())
-                    .with_raw_return(false)
-                    .prompt();
+                let mut _subg = Vec::<Element>::new();
+                _subg = vec!(Element {
+                    label: format!("all \"{}\"", _genre_ans.as_ref().unwrap()),
+                    ..Default::default()
+                });
 
-                match subgenre_ans {
-                    Ok(ref choice) => self.set_subgenre(choice),
+                _subg.append(&mut a);
+                let mut tags = vec!(slug(_genre_ans.as_ref().unwrap().to_string()));
+                match Select::new("sub genre?",
+                                  _subg.iter().map(|x| x.label.clone()).collect())
+                    .with_raw_return(false)
+                    .prompt() {
+                    Ok(ref choice) => {
+                        if !choice.starts_with("all") {
+                            tags.append(&mut vec![slug(choice.to_owned())]);
+                            self.set_subgenre(choice);
+                        }
+                    },
                     Err(e) => match e {
-                        InquireError::OperationCanceled
-                            => {
-                                skip = false;
-                                continue;
-                            },
                         InquireError::OperationInterrupted
                             => return Err(Error::from(BcradioError::OperationInterrupted)),
-                        other_error
-                            => panic!("inquire error: {:?}", other_error),
+                        _ => continue,
                     }
                 };
 
-                let subgenre_element = pick_element(subgenres, subgenre_ans.as_ref());
-                if subgenre_element.clone().unwrap().slug.starts_with("all-") {
-                    self.set_subgenre("");
-                    return Ok(PostData {
-                        tag_norm_names: vec![
-                            element.unwrap().slug.to_string()
-                        ],
-                        ..Default::default()
-                    })
-                }
                 Ok(PostData {
-                    tag_norm_names: vec![
-                        element.unwrap().slug.to_string(),
-                        subgenre_element.clone().unwrap().slug.to_string(),
-                    ],
+                    tag_norm_names: tags,
                     ..Default::default()
                 })
             }
@@ -365,7 +408,7 @@ fn genre_list(t: Vec<Element>, g: Vec<Element>, tag: String) -> Vec<String> {
         .iter()
         .map(|x| g
             .iter()
-            .filter(|&b| b.id == x.parent_id.unwrap()).cloned()
+            .filter(|&b| b.slug == x.to_owned().parent_slug.unwrap()).cloned()
             .map(|x| x.label)
             .collect::<String>()
         ).collect::<Vec<_>>()
@@ -404,12 +447,6 @@ fn bytes_mut(a: &[u8]) -> Result<BytesMut> {
     Ok(b)
 }
 
-fn url_escape(s: String) -> String {
-    form_urlencoded::Serializer::new(String::new())
-        .append_key_only(&s)
-        .finish()
-}
-
 fn slug(mut s: String) -> String {
     s = s.trim().parse().unwrap();
     [(r"[?#].*", ""),
@@ -426,29 +463,36 @@ fn slug(mut s: String) -> String {
 #[cfg(test)]
 mod tests {
     use scraper::Html;
-    use crate::libbc::http_client::Client;
+    use tokio::runtime::Runtime;
+    use crate::libbc::args::init_args;
+    use crate::libbc::http_client::HttpClient;
+    use crate::libbc::playlist::PlayList;
     use crate::libbc::search::parse_doc;
+    use crate::libbc::shared_data::SharedState;
     use crate::models::bc_discover_json::DiscoverJsonRequest;
-
+    pub(crate) fn runtime() -> &'static Runtime {
+        static RUNTIME: once_cell::sync::OnceCell<Runtime> = once_cell::sync::OnceCell::new();
+        RUNTIME.get_or_init(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+        })
+    }
     #[test]
     fn test_url_escape() {
         let s = String::from("all r&b/soul");
         let s = super::slug(s);
         assert_eq!(s, String::from("all-r-b-soul"));
     }
+
     #[test]
-    fn test_json_parse() {
-        let burl = String::from("http://localhost:8080/deep-house");
-
-        let client: Client = Default::default();
-        let buf = client.get_curl_request(burl).unwrap().vec().unwrap();
-        let slice = String::from_utf8(buf).unwrap();
-        let doc = Html::parse_document(&slice);
-
-        let c = parse_doc(doc,
-                          "div[id='DiscoverApp']",
-                          "data-blob").unwrap();
-        let json: Result<DiscoverJsonRequest, simd_json::Error>  = simd_json::from_reader(c.as_bytes());
-        println!("test");
+    fn test_menu() {
+        runtime().block_on(async {
+            init_args();
+            let s = SharedState::default();
+            let aa = s.choice().unwrap();
+            println!("{:?}", aa);
+        });
     }
 }

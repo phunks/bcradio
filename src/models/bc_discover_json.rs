@@ -6,7 +6,7 @@ pub struct DiscoverJsonRequest {
     result_count: i32,
     batch_result_count: i32,
     pub cursor: Option<String>,
-    discover_spec_id: i32,
+    discover_spec_id: Option<i32>,
 }
 
 impl Clone for DiscoverJsonRequest {

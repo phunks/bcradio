@@ -28,14 +28,14 @@ pub struct InitialState {
     pub locations: Vec<Element>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Element {
     pub id: i64,
     pub label: String,
     pub slug: String,
     pub selected: Option<bool>,
-    #[serde(rename="parentId")]
-    pub parent_id: Option<i64>,
+    #[serde(rename="parentSlug")]
+    pub parent_slug: Option<String>,
 }
 
 impl Clone for Element {
@@ -45,7 +45,7 @@ impl Clone for Element {
             label: self.label.clone(),
             slug: self.slug.clone(),
             selected: self.selected,
-            parent_id: self.parent_id,
+            parent_slug: self.parent_slug.clone(),
         }
     }
 }

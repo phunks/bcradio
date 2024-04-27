@@ -8,7 +8,7 @@ use simd_json::prelude::{ValueAsScalar, ValueObjectAccess};
 use simd_json::OwnedValue as Value;
 use futures::{stream, StreamExt, TryStreamExt};
 
-use crate::libbc::search::{base_url, is_mp3, parse_doc};
+use crate::libbc::search::{base_url, parse_doc};
 use crate::models::search_models::{Current, ItemPage, TrackInfo};
 use crate::models::shared_data_models::{ResultsJson, Track};
 
@@ -80,12 +80,6 @@ pub async fn html_to_track(v: Bytes) -> Result<Vec<Track>> {
     }
 }
 
-pub async fn mp3(v: Bytes) -> Result<Vec<Vec<u8>>> {
-    match is_mp3(v.to_vec()) {
-        true => Ok(vec!(v.to_vec())),
-        _ => Ok(Vec::new())
-    }
-}
 
 pub fn html_to_json(res: Vec<u8>) -> Result<Value> {
     let html = String::from_utf8(res)?;
