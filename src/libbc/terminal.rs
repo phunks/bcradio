@@ -180,3 +180,75 @@ pub fn draw_img(
     })?;
     Ok(())
 }
+
+
+pub fn show_alt_term2<T>(v: Vec<T>) -> anyhow::Result<Option<usize>>
+    where
+        T: Into<String> + Clone,
+{
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+
+    enable_raw_mode()?;
+    execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 1))?;
+
+    let backend = CrosstermBackend::new(stdout);
+    let mut term = Terminal::new(backend)?;
+    let max = v.len() - 1;
+    let mut textarea = TextArea::from(v);
+    textarea.set_cursor_style(Style::new().hidden());
+    textarea.set_block(ratatui::widgets::block::Block::default().borders(Borders::NONE));
+
+    let mut line = None;
+    loop {
+        draw(&mut term, textarea.clone())?;
+        match crossterm::event::read()?.into() {
+            Input {
+                key: Key::Esc,
+                ..
+            } => { break },
+            Input {
+                key: Key::Char(_c), // any
+                ..
+            } => { break },
+            Input {
+                key: Key::Up,
+                ..
+            } => {
+                match textarea.cursor().0 {
+                    0 => textarea.move_cursor(CursorMove::Bottom),
+                    _ => textarea.move_cursor(CursorMove::Up),
+                }
+            },
+            Input {
+                key: Key::Down,
+                ..
+            } => {
+                if textarea.cursor().0 == max {
+                    textarea.move_cursor(CursorMove::Top);
+                } else {
+                    textarea.move_cursor(CursorMove::Down);
+                }
+            },
+            Input {
+                key: Key::Enter,
+                ..
+            } => {
+                line = match textarea.cursor().0 {
+                    0 => None,
+                    _ => Some(textarea.cursor().0),
+                };
+                break;
+            },
+            Input { .. } => {}
+        }
+    }
+
+    execute!(
+        term.backend_mut(),
+        LeaveAlternateScreen,
+        cursor::Show,
+    )?;
+
+    Ok(line)
+}

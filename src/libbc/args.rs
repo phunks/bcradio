@@ -14,6 +14,7 @@ A command line music player for https://bandcamp.com
  f                    favorite search
  n                    play next
  m                    menu
+ l                    playlist
  p                    play/pause
  Q                    graceful kill
  Ctrl+C               exit";
@@ -22,11 +23,17 @@ A command line music player for https://bandcamp.com
 #[clap(author, version, about = ABOUT)]
 pub struct Args {
     /// disable SSL verification
-    #[arg(long)]
+    #[arg(long, short)]
     pub no_ssl_verify: bool,
     /// image size
     #[arg(long, short, default_value_t = 30)]
     pub img_width: u16,
+    /// genre
+    #[arg(short, long, help = "genre")]
+    pub genre: Option<String>,
+    /// sub genre
+    #[arg(short, long, help = "sub genre")]
+    pub sub_genre: Option<String>,
 }
 
 pub fn about() -> &'static str {
@@ -50,4 +57,12 @@ pub fn args_img_size() -> u16 {
         ..= 10 => 10,
         a => a,
     };
+}
+
+pub fn args_genre() -> Option<String> {
+    ARGS.lock().unwrap().as_ref().unwrap().genre.to_owned()
+}
+
+pub fn args_sub_genre() -> Option<String> {
+    ARGS.lock().unwrap().as_ref().unwrap().sub_genre.to_owned()
 }

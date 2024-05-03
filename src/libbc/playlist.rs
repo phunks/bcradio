@@ -9,6 +9,7 @@ use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen, LeaveAlternateS
 use futures::executor::block_on;
 use inquire::{InquireError, Select};
 use inquire::ui::{Attributes, Color, RenderConfig, Styled, StyleSheet};
+use itertools::Itertools;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use ratatui::widgets::Borders;
@@ -16,8 +17,9 @@ use scraper::Html;
 use tui_textarea::TextArea;
 use regex::Regex;
 
+use crate::{ceil, format_duration};
 use crate::libbc::player::PARK;
-use crate::libbc::http_client::HttpClient;
+use crate::libbc::http_client::{get_blocking_request, post_request};
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::search::parse_doc;
 use crate::libbc::shared_data::SharedState;
@@ -31,6 +33,7 @@ use crate::models::shared_data_models::{ResultsJson, Track};
 
 pub trait PlayList {
     fn ask(&self) -> Result<PostData>;
+    fn silent(&self, genre: Option<String>, sub_genre: Option<String>) -> Result<PostData>;
     async fn store_results(&self, post_data: PostData);
     async fn fill_playlist(&self) -> Result<()>;
     fn discover_index(&self, url: String) -> Result<DiscoverIndexRequest>;
@@ -54,6 +57,22 @@ impl PlayList for SharedState {
         Ok(post_data)
     }
 
+    fn silent(&self, genre: Option<String>, sub_genre: Option<String>) -> Result<PostData> {
+        let v = [genre, sub_genre]
+            .into_iter()
+            .filter(|i| i.is_some())
+            .map(|x| slug(x.unwrap()))
+            .filter(|i|!i.is_empty())
+            .collect::<Vec<_>>();
+
+        let post_data = PostData {
+            tag_norm_names: v,
+            ..Default::default()
+        };
+
+        Ok(post_data)
+    }
+
     async fn store_results(&self, post_data: PostData) {
         let res = self.discover_json(post_data).await.unwrap();
         let aa = self.gen_track_list(res).unwrap();
@@ -62,7 +81,7 @@ impl PlayList for SharedState {
 
     async fn fill_playlist(&self) -> Result<()> {
         let l = self.queue_length_from_truck_list();
-        if l < 1 {
+        if l < 2 {
             match self.next_post().cursor{
                 Some(_) => {
                     let post_data = self.next_post().clone();
@@ -87,11 +106,9 @@ impl PlayList for SharedState {
 
     fn discover_index(&self, url: String) -> Result<DiscoverIndexRequest>{
 
-        let client= HttpClient::default();
-        let buf = client
-            .get_blocking_request(url);
+        let buf = get_blocking_request(url);
 
-        let slice = String::from_utf8(buf?.res).unwrap();
+        let slice = String::from_utf8(buf?).unwrap();
         let doc = Html::parse_document(&slice);
 
         let c = parse_doc(doc,
@@ -110,11 +127,10 @@ impl PlayList for SharedState {
     async fn discover_json(&self, post_data: PostData) -> Result<Vec<Results>>{
         let url = String::from("https://bandcamp.com/api/discover/1/discover_web");
 
-        let client = HttpClient::default();
-        let a = client.post_request(url, post_data.clone()).await;
+        let a = post_request(url, post_data.clone()).await;
 
         let json: Result<DiscoverJsonRequest, serde_json::Error> =
-                serde_json::from_slice(&bytes_mut(a?.res.as_slice())?);
+                serde_json::from_slice(&bytes_mut(a?.as_slice())?);
         let cursor = json.as_ref().unwrap().cursor.clone();
         self.set_next_postdata(PostData {
             cursor,
@@ -126,11 +142,10 @@ impl PlayList for SharedState {
     async fn discover_tags_json(&self, post_data: TagsPostData) -> Result<Vec<Element>> {
         let url = String::from("https://bandcamp.com/api/tag_search/2/related_tags");
 
-        let client = HttpClient::default();
-        let a = client.post_request(url, post_data).await;
+        let a = post_request(url, post_data).await;
 
         let json: Result<DiscoverTagsJson, serde_json::Error> =
-            serde_json::from_slice(&bytes_mut(a?.res.as_slice())?);
+            serde_json::from_slice(&bytes_mut(a?.as_slice())?);
         let s = match json.unwrap_or_else(|_| DiscoverTagsJson::default()).single_results.first() {
             None => {Struct::default()}
             Some(a) => a.clone()
@@ -157,6 +172,7 @@ impl PlayList for SharedState {
             let r = self.discover_index(url.to_string());
             let (g, t) = match r {
                 Ok(mut t) => {
+                    self.set_subgenre("");
                     let mut g = vec!(Element {
                         label: "all genres".to_string(),
                         ..Default::default()
@@ -460,16 +476,95 @@ fn slug(mut s: String) -> String {
     s
 }
 
+/// show playlist
+pub(crate) fn format(n: usize, x: &Track) -> String {
+
+    let (title_width, title) = char_width(x.track.clone());
+    let (artist_width, artist) = char_width(x.artist_name.clone());
+    format!("{:2} {:title_width$} {:>7} {:artist_width$} {}",
+            n,
+            title,
+            format_duration!(ceil!(x.duration, 1.0) as u32),
+            artist,
+            x.album_title.clone())
+}
+
+fn char_width(s: String) -> (usize, String) {
+    let max_length:i8 = 30;
+    let mut n:i8 = 0;
+    let mut m:i8 = 0;
+    let mut v = Vec::new();
+    for i in s.chars() {
+        let a = combine_char_width(i);
+
+        if n + a >= 29 {
+            if n == 27 && a == 2 {
+                v.append(&mut vec!(" ".to_string()));
+            }
+            v.append(&mut vec!("..".to_string()));
+            break
+        } else {
+            n += a;
+            m += a - 1;
+            v.append(&mut vec!(i.to_string()));
+        }
+    }
+
+    ((max_length - m) as usize, v.iter().join(""))
+}
+
+fn combine_char_width(i: char) -> i8 {
+    match i {
+        '\u{0300}'..='\u{036F}' |
+        '\u{1ab0}'..='\u{1aff}' |
+        '\u{1dc0}'..='\u{1dff}' |
+        '\u{20d0}'..='\u{20ff}' |
+        '\u{2de0}'..='\u{2dff}' |
+        '\u{3099}'..='\u{309a}' |
+        '\u{303f}' |
+        '\u{302a}'..='\u{302f}' |
+        '\u{0e00}' | '\u{0e31}' |
+        '\u{0e34}'..='\u{0e3a}' | // thainese
+        '\u{0e47}'..='\u{0e4e}' | // thainese
+        '\u{fe20}'..='\u{fe2f}' |
+        '\u{feff}' => 0,
+        '\u{09dc}'..='\u{09dd}' |
+        '\u{09df}' |
+        '\u{0958}'..='\u{095f}' |
+        '\u{1100}'..='\u{115f}' |
+        '\u{2329}'..='\u{232a}' |
+        '\u{2adc}' |
+        '\u{2e80}'..='\u{a4cf}' |
+        '\u{ac00}'..='\u{d7a3}' |
+        '\u{0e5b}' | '\u{0edc}' | '\u{0edd}' | // thainese
+        '\u{f900}'..='\u{fa6b}' |
+        '\u{fa6d}'..='\u{face}' |
+        '\u{fad2}'..='\u{fad4}' |
+        '\u{fad8}'..='\u{faff}' |
+        '\u{fb1d}' |
+        '\u{fb1f}' |
+        '\u{fb2a}'..='\u{fb2b}' |
+        '\u{fb2e}'..='\u{fb36}' |
+        '\u{fb38}'..='\u{fb3c}' |
+        '\u{fb3e}' |
+        '\u{fb40}'..='\u{fb41}' |
+        '\u{fb43}'..='\u{fb44}' |
+        '\u{fb46}'..='\u{fb4e}' |
+        '\u{fe10}'..='\u{fe19}' |
+        '\u{fe30}'..='\u{fe6f}' |
+        '\u{ff00}'..='\u{ff60}' |
+        '\u{ffe0}'..='\u{ffe6}' |
+        '\u{10000}'..='\u{fffff}' => 2,
+        _ => 1,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use scraper::Html;
     use tokio::runtime::Runtime;
     use crate::libbc::args::init_args;
-    use crate::libbc::http_client::HttpClient;
     use crate::libbc::playlist::PlayList;
-    use crate::libbc::search::parse_doc;
     use crate::libbc::shared_data::SharedState;
-    use crate::models::bc_discover_json::DiscoverJsonRequest;
     pub(crate) fn runtime() -> &'static Runtime {
         static RUNTIME: once_cell::sync::OnceCell<Runtime> = once_cell::sync::OnceCell::new();
         RUNTIME.get_or_init(|| {

@@ -56,7 +56,7 @@ async fn start_playing() -> Result<()> {
                         if e.kind == KeyEventKind::Press {
                             if let KeyCode::Char(c) = e.code {
                                 match c {
-                                    's' | 'h' | 'm' | 'i' => {
+                                    's' | 'h' | 'm' | 'i' | 'l' => {
                                         *PARK.lock().unwrap() = false;
                                         RXTX.deref().0.send(c).await?
                                     },

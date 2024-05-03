@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2021"
 
 [profile.release]
@@ -21,7 +21,7 @@ chrono = { version = "0.4.34"}
 clap = { version = "4.5.1", features = ["derive"] }
 colored = { version = "2.1.0" }
 cpal = { version = "0.15.2", features = ["asio"] }
-crossterm = { version = "0.27.0" }
+crossterm = { version = "0.27.0", features = ["event-stream"] }
 futures = { version = "0.3.30" }
 indicatif = { version = "0.17.8" }
 inquire = { path = "external/inquire", version = "0.7.0" }
@@ -47,6 +47,8 @@ viu = { path = "external/viu", version = "1.5.0" }
 viuer = { version = "0.7.1" }
 itertools = { version = "0.12.1" }
 reqwest = { version = "0.12.2",default-features = false, features = ["rustls-tls", "http2", "gzip", "blocking", "trust-dns"] }
+unicode-width = { version = "0.1.11" }
+cjk = { version = "0.2.5" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0" }

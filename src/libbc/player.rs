@@ -1,5 +1,6 @@
 
 use std::ops::Deref;
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -11,14 +12,14 @@ use lazy_static::lazy_static;
 use rodio::Sink;
 
 use crate::{ceil, format_duration};
-use crate::libbc::args::{about};
-use crate::libbc::http_client::HttpClient;
-use crate::libbc::playlist::PlayList;
+use crate::libbc::args::{about, args_genre, args_sub_genre};
+use crate::libbc::http_client::get_blocking_request;
+use crate::libbc::playlist::{format, PlayList};
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::search::Search;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::sink::{Mp3, MusicStruct};
-use crate::libbc::terminal::{quit, show_alt_term};
+use crate::libbc::terminal::{quit, show_alt_term, show_alt_term2};
 use crate::models::shared_data_models::ResultsJson;
 
 
@@ -32,12 +33,13 @@ lazy_static! {
     pub static ref PROG: Mutex<bool> = Mutex::new(true);
 }
 
+
 #[async_trait]
 pub trait Player<'a>: Send + Sync + 'static {
     async fn player_thread() -> Result<()>;
     fn track_info(&self) -> Result<Vec<String>>;
 }
-
+pub(crate) static ENQUE_FLG: AtomicBool = AtomicBool::new(true);
 #[async_trait]
 impl Player<'static> for SharedState {
     async fn player_thread() -> Result<()> {
@@ -46,12 +48,18 @@ impl Player<'static> for SharedState {
         let progress = state.to_owned();
         let (_, hdl0) = abortable(progress.bar.run().await);
 
-        match state.ask() {
-            Ok(post_data)
+        if args_genre().is_some() || args_sub_genre().is_some() {
+            let post_data = state.silent(args_genre(), args_sub_genre())?;
+            state.store_results(post_data).await;
+        } else {
+            match state.ask() {
+                Ok(post_data)
                 => state.store_results(post_data).await,
-            Err(e)
+                Err(e)
                 => quit(e),
-        };
+            };
+        }
+
         *PARK.lock().unwrap() = true;
         let mut _current_volume = 9;
 
@@ -62,7 +70,9 @@ impl Player<'static> for SharedState {
             if sink.empty() {
                 state.fill_playlist().await?;
             }
-            state.enqueue_truck_buffer().await?;
+
+            state.enqueue_truck_buffer().await;
+
             play(&state, &sink).await?;
 
             if let Ok(res) = RXTX.deref().1.try_recv() {
@@ -83,6 +93,10 @@ impl Player<'static> for SharedState {
                     }
                     'i' => { info(&state)? }
                     'm' => { menu(&state)? }
+                    'l' => {
+                        state.fill_playlist().await?;
+                        playlist(&state)?
+                    }
                     'f' => { state.search(None).await? }
                     's' => { search(&state).await? }
                     'h' => { help(&state)? }
@@ -125,7 +139,7 @@ impl Player<'static> for SharedState {
                     .iter()
                     .find(|&x| x.id == g.band_genre_id as i64).cloned();
 
-                v.append(&mut vec![format!(" {:>14} {}", "Category:", genre.unwrap().label)]);
+                v.append(&mut vec![format!(" {:>14} {}", "Category:", genre.unwrap_or_default().label)]);
                 v.append(&mut vec![format!(" {:>14} {}", "Genre:",    current_track.genre.clone().unwrap_or_default())]);
                 v.append(&mut vec![format!(" {:>14} {}", "Subgenre:", current_track.subgenre.clone().unwrap_or_default())]);
                 v.append(&mut vec![format!(" {:>14} {} {:3.2}", "Item Price:",
@@ -172,10 +186,10 @@ async fn search(state: &SharedState) -> Result<()> {
     let search_str = state.show_input_panel()?;
     state.bar.enable_tick_on_screen();
 
-    *PARK.lock().unwrap() = true;
     if search_str.is_some() {
         state.search(search_str).await?;
     }
+    *PARK.lock().unwrap() = true;
     Ok(())
 }
 
@@ -197,9 +211,8 @@ fn info(state: &SharedState) -> Result<()> {
     match state.get_current_art_id() {
         Some(art_id) => {
             let url = format!("https://f4.bcbits.com/img/a{}_16.jpg", art_id);
-            let client: HttpClient = Default::default();
-            let img = client.get_blocking_request(url);
-            show_alt_term(v, Option::from(img?.res))?;
+            let img = get_blocking_request(url);
+            show_alt_term(v, Option::from(img?))?;
         },
         None => show_alt_term(v, None)?
     }
@@ -214,6 +227,29 @@ fn menu(state: &SharedState) -> Result<()> {
     state.top_menu()?;
     state.bar.enable_tick_on_screen();
 
+    *PARK.lock().unwrap() = true;
+    Ok(())
+}
+
+fn playlist(state: &SharedState) -> Result<()> {
+    state.bar.disable_tick_on_screen();
+    let mut v = vec!(format!("{:>2} {:30} {:>7} {:30} {}",
+                             "#", "Track", "Time", "Artist", "Artist by Album"));
+    let _width = 30;
+    v.extend(state.get_tracklist()
+        .iter()
+        .enumerate()
+        .take(12)
+        .map(|(n, x)|
+        format(n + 1, x)
+    ).collect::<Vec<String>>());
+
+    match show_alt_term2(v)? {
+        None => {},
+        Some(l) => state.drain_tracklist(l)
+    }
+
+    state.bar.enable_tick_on_screen();
     *PARK.lock().unwrap() = true;
     Ok(())
 }

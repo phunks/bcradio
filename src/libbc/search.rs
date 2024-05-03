@@ -19,7 +19,7 @@ use tui_textarea::{Input, Key, TextArea};
 
 use crate::debug_println;
 use crate::libbc::http_adapter::{html_to_track, http_adapter};
-use crate::libbc::http_client::{HttpClient};
+use crate::libbc::http_client::post_request;
 use crate::libbc::player::PARK;
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::shared_data::SharedState;
@@ -50,11 +50,10 @@ impl Search for SharedState {
             fan_id: None,
         };
 
-        let client = HttpClient::default();
-        let val = client.post_request(url, search_json_req).await?;
+        let val = post_request(url, search_json_req).await?;
 
         let search_json_response =
-            simd_json::from_slice::<SearchJsonResponse>(val.clone().res.as_mut_slice())?;
+            simd_json::from_slice::<SearchJsonResponse>(val.clone().as_mut_slice())?;
         let mut v: Vec<String> = Vec::new();
         for search_item in search_json_response.auto.results {
             if let Some(url) = search_item.item_url_path.to_owned() {
