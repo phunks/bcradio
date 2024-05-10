@@ -1,7 +1,14 @@
 [package]
 name = "bcradio"
-version = "0.8.6"
+version = "0.8.7"
 edition = "2021"
+license = "MIT"
+description = "A command line music player for https://bandcamp.com, written in Rust."
+keywords = ["cli", "bandcamp"]
+categories = ["command-line-utilities"]
+readme = "README.md"
+homepage = "https://github.com/phunks/bcradio"
+repository = "https://github.com/phunks/bcradio"
 
 [profile.release]
 debug = false
@@ -47,8 +54,6 @@ viu = { path = "external/viu", version = "1.5.0" }
 viuer = { version = "0.7.1" }
 itertools = { version = "0.12.1" }
 reqwest = { version = "0.12.2",default-features = false, features = ["rustls-tls", "http2", "gzip", "blocking", "trust-dns"] }
-unicode-width = { version = "0.1.11" }
-cjk = { version = "0.2.5" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0" }

@@ -5,17 +5,18 @@ use std::io;
 use std::iter::Iterator;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use chrono::Local;
 use futures::future::{abortable, AbortHandle};
 
 use crate::debug_println;
 use crate::libbc::http_client::get_request;
-use crate::libbc::player::ENQUE_FLG;
 use crate::models::bc_discover_index::{Element, PostData};
 use crate::libbc::progress_bar::{Bar, Progress};
 use crate::models::shared_data_models::{CurrentTrack, State, Track};
+
+pub static ENQUE_FLG: AtomicBool = AtomicBool::new(true);
 
 #[derive(Default, Debug)]
 pub struct SharedState {
@@ -91,6 +92,11 @@ impl SharedState {
     pub fn push_front_tracklist(&self, playlist: Track) {
         let mut lock = self.state.lock().unwrap();
         lock.player.tracks.push_front(playlist);
+    }
+
+    pub fn insert_tracklist(&self, n: usize, playlist: Track) {
+        let mut lock = self.state.lock().unwrap();
+        lock.player.tracks.insert(n, playlist);
     }
 
     pub fn clear_all_tracklist(&self) {

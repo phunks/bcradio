@@ -120,8 +120,12 @@ impl Search for SharedState {
             *PARK.lock().unwrap() = true;
         }
 
-        for i in r {
-            self.push_front_tracklist(i)
+
+        for i in r.into_iter().enumerate() {
+            match i.0 {
+                0 => self.push_front_tracklist(i.1),
+                _ => self.insert_tracklist(1, i.1)
+            }
         }
         Ok(())
     }

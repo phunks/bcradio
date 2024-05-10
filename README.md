@@ -41,6 +41,7 @@ Options:
  f                    favorite search
  n                    play next
  m                    menu
+ l                    playlist
  p                    play/pause
  Q                    graceful kill
  Ctrl+C               exit

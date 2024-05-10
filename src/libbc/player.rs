@@ -1,6 +1,5 @@
 
 use std::ops::Deref;
-use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -39,7 +38,6 @@ pub trait Player<'a>: Send + Sync + 'static {
     async fn player_thread() -> Result<()>;
     fn track_info(&self) -> Result<Vec<String>>;
 }
-pub(crate) static ENQUE_FLG: AtomicBool = AtomicBool::new(true);
 #[async_trait]
 impl Player<'static> for SharedState {
     async fn player_thread() -> Result<()> {
@@ -168,6 +166,8 @@ impl Player<'static> for SharedState {
 async fn play(state: &SharedState, sink: &Sink) -> Result<()> {
     if sink.empty() && state.get_buffer_set_queue_length() > 0 {
         let buf = state.get_track_buffer(0);
+        if buf.is_empty() { return Ok(()) }
+
         state.move_to_current_track();
         state
             .bar
