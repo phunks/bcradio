@@ -208,11 +208,10 @@ pub fn show_alt_term2<T>(v: Vec<T>) -> anyhow::Result<Option<usize>>
                 ..
             } => { break },
             Input {
-                key: Key::Char(_c), // any
-                ..
-            } => { break },
-            Input {
                 key: Key::Up,
+                ..
+            } | Input {
+                key: Key::Char('k'),
                 ..
             } => {
                 match textarea.cursor().0 {
@@ -223,6 +222,9 @@ pub fn show_alt_term2<T>(v: Vec<T>) -> anyhow::Result<Option<usize>>
             Input {
                 key: Key::Down,
                 ..
+            } | Input {
+                key: Key::Char('j'),
+                ..
             } => {
                 if textarea.cursor().0 == max {
                     textarea.move_cursor(CursorMove::Top);
@@ -230,6 +232,10 @@ pub fn show_alt_term2<T>(v: Vec<T>) -> anyhow::Result<Option<usize>>
                     textarea.move_cursor(CursorMove::Down);
                 }
             },
+            Input {
+                key: Key::Char(_c), // any
+                ..
+            } => { break },
             Input {
                 key: Key::Enter,
                 ..

@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.8.7"
+version = "0.8.8"
 edition = "2021"
 license = "MIT"
 description = "A command line music player for https://bandcamp.com, written in Rust."
@@ -36,7 +36,7 @@ lazy_static = { version = "1.4.0" }
 mp3-duration = { version = "0.1.10" }
 once_cell = { version = "1.19.0" }
 ratatui = { version = "0.26.1" }
-rodio = { version = "0.17.3", features = ["symphonia", "symphonia-mp3" ] }
+rodio = { version = "0.18.1", features = ["symphonia", "symphonia-mp3" ] }
 scraper = { version = "0.19.0" }
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = { version = "1.0.114" }
@@ -52,8 +52,9 @@ regex = { version = "1.10.4" }
 chrono-tz = { version = "0.9.0" }
 viu = { path = "external/viu", version = "1.5.0" }
 viuer = { version = "0.7.1" }
-itertools = { version = "0.12.1" }
+itertools = { version = "0.13.0" }
 reqwest = { version = "0.12.2",default-features = false, features = ["rustls-tls", "http2", "gzip", "blocking", "trust-dns"] }
+rust-fuzzy-search = { version = "0.1.1" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0" }

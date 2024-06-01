@@ -9,3 +9,4 @@ pub mod terminal;
 pub mod http_client;
 pub mod args;
 pub mod http_adapter;
+pub mod scorer;

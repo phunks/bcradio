@@ -24,8 +24,10 @@ use crate::libbc::player::PARK;
 use crate::libbc::progress_bar::Progress;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::terminal::{clear_screen, draw};
+use crate::libbc::scorer::score_sort;
 use crate::models::bc_error::BcradioError;
 use crate::models::search_models::{SearchJsonRequest, SearchJsonResponse};
+
 
 
 #[async_trait]
@@ -71,7 +73,7 @@ impl Search for SharedState {
         debug_println!("Debug http_adapter: {:?}\r", _start.elapsed()); //debug
 
         self.bar.disable_spinner();
-
+        // let mut r = score_sort(r, search_text.unwrap().as_str());
         let uniq = r.iter().unique_by(|p| &p.band_id).collect::<Vec<_>>();
         if uniq.len() > 1 {
             *PARK.lock().unwrap() = false;
@@ -120,12 +122,9 @@ impl Search for SharedState {
             *PARK.lock().unwrap() = true;
         }
 
-
+        let r = score_sort(r, search_text.unwrap().as_str());
         for i in r.into_iter().enumerate() {
-            match i.0 {
-                0 => self.push_front_tracklist(i.1),
-                _ => self.insert_tracklist(1, i.1)
-            }
+            self.push_front_tracklist(i.1);
         }
         Ok(())
     }

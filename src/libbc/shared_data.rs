@@ -94,6 +94,7 @@ impl SharedState {
         lock.player.tracks.push_front(playlist);
     }
 
+    #[allow(dead_code)]
     pub fn insert_tracklist(&self, n: usize, playlist: Track) {
         let mut lock = self.state.lock().unwrap();
         lock.player.tracks.insert(n, playlist);
