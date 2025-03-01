@@ -1,21 +1,20 @@
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiscoverIndexRequest {
-    #[serde(rename="appData")]
+    #[serde(rename = "appData")]
     pub app_data: AppData,
-    #[serde(rename="pageContext")]
+    #[serde(rename = "pageContext")]
     pub page_context: PageContext,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppData {
-    #[serde(rename="initialState")]
+    #[serde(rename = "initialState")]
     pub initial_state: InitialState,
-    #[serde(rename="seoData")]
+    #[serde(rename = "seoData")]
     seo_data: Option<SeoData>,
-    #[serde(rename="includeResultTypes")]
+    #[serde(rename = "includeResultTypes")]
     pub include_result_types: Vec<String>,
 }
 
@@ -34,7 +33,7 @@ pub struct Element {
     pub label: String,
     pub slug: String,
     pub selected: Option<bool>,
-    #[serde(rename="parentSlug")]
+    #[serde(rename = "parentSlug")]
     pub parent_slug: Option<String>,
 }
 
@@ -59,13 +58,13 @@ pub struct SeoData {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PageContext {
-    #[serde(rename="fanId")]
+    #[serde(rename = "fanId")]
     fan_id: Option<i64>,
-    #[serde(rename="isLoggedIn")]
+    #[serde(rename = "isLoggedIn")]
     is_logged_in: bool,
-    #[serde(rename="isAdmin")]
+    #[serde(rename = "isAdmin")]
     is_admin: bool,
-    #[serde(rename="isMobile")]
+    #[serde(rename = "isMobile")]
     is_mobile: bool,
     languages: Languages,
 }

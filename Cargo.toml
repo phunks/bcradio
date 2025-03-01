@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.8.8"
+version = "0.8.9"
 edition = "2021"
 license = "MIT"
 description = "A command line music player for https://bandcamp.com, written in Rust."
@@ -26,23 +26,23 @@ async-std = { version = "1.12.0" }
 async-trait = { version = "0.1.77" }
 chrono = { version = "0.4.34"}
 clap = { version = "4.5.1", features = ["derive"] }
-colored = { version = "2.1.0" }
+colored_text = { version = "0.3.0" }
+colored = "3.0.0"
 cpal = { version = "0.15.2", features = ["asio"] }
-crossterm = { version = "0.27.0", features = ["event-stream"] }
+crossterm = { version = "0.28.1", features = ["event-stream"] }
 futures = { version = "0.3.30" }
 indicatif = { version = "0.17.8" }
-inquire = { path = "external/inquire", version = "0.7.0" }
-lazy_static = { version = "1.4.0" }
+inquire = { path = "external/inquire/inquire", version = "0.7.5" }
 mp3-duration = { version = "0.1.10" }
 once_cell = { version = "1.19.0" }
-ratatui = { version = "0.26.1" }
+ratatui = { version = "0.28.0" }
 rodio = { version = "0.18.1", features = ["symphonia", "symphonia-mp3" ] }
 scraper = { version = "0.19.0" }
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = { version = "1.0.114" }
 symphonia = { version = "0.5.3" }
 tokio = { version = "1.36.0", features = ["full"] }
-tui-textarea = { version = "0.4.0" }
+tui-textarea = { version = "0.6.1" }
 url = { version = "2.5.0"}
 ctrlc = { version = "3.4.2" }
 thiserror = { version = "1.0.57" }
@@ -50,11 +50,13 @@ simd-json = { version = "0.13.8" }
 bytes = { version = "1.5.0" }
 regex = { version = "1.10.4" }
 chrono-tz = { version = "0.9.0" }
-viu = { path = "external/viu", version = "1.5.0" }
-viuer = { version = "0.7.1" }
+viu = { path = "external/viu", version = "1.5.1" }
+viuer = { version = "0.9.1" }
 itertools = { version = "0.13.0" }
-reqwest = { version = "0.12.2",default-features = false, features = ["rustls-tls", "http2", "gzip", "blocking", "trust-dns"] }
+reqwest = { version = "0.12.2",default-features = false, features = ["rustls-tls", "socks", "http2", "gzip", "blocking", "trust-dns"] }
 rust-fuzzy-search = { version = "0.1.1" }
+log = "0.4.21"
+pretty_env_logger = "0.5.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0" }

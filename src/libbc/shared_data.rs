@@ -1,19 +1,19 @@
-
+use anyhow::Result;
+use chrono::Local;
+use futures::future::{abortable, AbortHandle};
 use std::clone::Clone;
 use std::collections::VecDeque;
 use std::io;
 use std::iter::Iterator;
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use chrono::Local;
-use futures::future::{abortable, AbortHandle};
-
-use crate::debug_println;
+use log::info;
 use crate::libbc::http_client::get_request;
+use crate::libbc::progress_bar::{disable_spinner, enable_spinner};
+use crate::libbc::terminal;
 use crate::models::bc_discover_index::{Element, PostData};
-use crate::libbc::progress_bar::{Bar, Progress};
 use crate::models::shared_data_models::{CurrentTrack, State, Track};
 
 pub static ENQUE_FLG: AtomicBool = AtomicBool::new(true);
@@ -21,7 +21,6 @@ pub static ENQUE_FLG: AtomicBool = AtomicBool::new(true);
 #[derive(Default, Debug)]
 pub struct SharedState {
     pub state: Arc<Mutex<State>>,
-    pub bar: Bar<'static>,
     pub task: Arc<Mutex<Vec<AbortHandle>>>,
     phantom: PhantomData<&'static ()>,
 }
@@ -30,7 +29,6 @@ impl Clone for SharedState {
     fn clone(&self) -> Self {
         SharedState {
             state: Arc::clone(&self.state),
-            bar: self.bar.clone(),
             task: self.task.clone(),
             phantom: Default::default(),
         }
@@ -43,43 +41,46 @@ impl SharedState {
         lock.player.tracks.len()
     }
 
-    pub async fn enqueue_truck_buffer(&self) {
+    pub async fn enqueue_truck_buffer(&self) -> Result<()> {
         let ss = self.clone();
 
         let l: usize = ss.queue_length_from_truck_list();
-        if l > 0 &&  !ss.exists_track_buffer(0) && ENQUE_FLG.load(Ordering::Relaxed) { // add audio buffer
+        if l > 0 && !ss.exists_track_buffer(0) && ENQUE_FLG.load(Ordering::Relaxed) {
+            // add audio buffer
             let i = 0;
             let a = tokio::spawn(async move {
+                if ENQUE_FLG
+                    .compare_exchange(true, false, Ordering::Acquire, Ordering::Relaxed)
+                    .unwrap()
+                {
+                    enable_spinner();
+                    let url = &ss.get_track_url(i);
+                    match get_request(url).await {
+                        Ok(buf) => {
+                            let duration =
+                            mp3_duration::from_read(&mut io::Cursor::new(buf.clone())).unwrap();
+                            ss.set_track_buffer(url, buf, duration);
+                        }
+                        Err(e) => {
+                            terminal::quit(e);
+                        }
+                    }
 
-                if ENQUE_FLG.compare_exchange(true, false,
-                                                 Ordering::Acquire,
-                                                 Ordering::Relaxed).unwrap() {
-                    ss.bar.enable_spinner();
-                    let url = ss.get_track_url(i);
-                    let buf = get_request(url.to_owned()).await.unwrap();
-
-                    use std::time::Instant; //debug
-                    let _start = Instant::now(); //debug
-                    let duration = mp3_duration::from_read(&mut io::Cursor::new(buf.clone())).unwrap();
-                    debug_println!("Debug mp3: {:?}\r", _start.elapsed());
-                    //debug
-                    debug_println!("{:?}\r", duration);
-                    ss.set_track_buffer(url, buf, duration);
-                    ss.bar.disable_spinner();
+                    disable_spinner();
                 };
-                let _ = ENQUE_FLG.compare_exchange(false, true,
-                                                   Ordering::Acquire,
-                                                   Ordering::Relaxed);
+                let _ =
+                    ENQUE_FLG.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed);
             });
             let b = abortable(a).1;
             self.append_task(b);
-        };
+        }
+        Ok(())
     }
 
     fn append_task(&self, hdl: AbortHandle) {
-        let mut v = vec!(hdl);
+        let mut v = vec![hdl];
         let mut lock = self.task.lock().unwrap();
-        lock.iter_mut().for_each(|i|i.abort());
+        lock.iter_mut().for_each(|i| i.abort());
         lock.clear();
         lock.append(&mut v);
     }
@@ -101,7 +102,7 @@ impl SharedState {
     }
 
     pub fn clear_all_tracklist(&self) {
-        debug_println!("clear_all_tracklist\r");
+        info!("clear_all_tracklist\r");
         let mut lock = self.state.lock().unwrap();
         lock.player.tracks.clear();
     }
@@ -116,9 +117,9 @@ impl SharedState {
         lock.player.tracks.clone()
     }
 
-    pub fn set_next_postdata(&self, post_data: PostData) {
+    pub fn set_next_postdata(&self, post_data: &PostData) {
         let mut lock = self.state.lock().unwrap();
-        lock.player.post_data = post_data;
+        lock.player.post_data = post_data.clone();
     }
 
     pub fn save_genres(&self, genres: Vec<Element>, subgenres: Vec<Element>) {
@@ -129,7 +130,10 @@ impl SharedState {
 
     pub fn get_genres(&self) -> (Vec<Element>, Vec<Element>) {
         let lock = self.state.lock().unwrap();
-        (lock.player.genres.to_owned(), lock.player.subgenres.to_owned())
+        (
+            lock.player.genres.to_owned(),
+            lock.player.subgenres.to_owned(),
+        )
     }
 
     pub fn set_genre(&self, genre: &str) {
@@ -165,9 +169,9 @@ impl SharedState {
             .count()
     }
 
-    pub fn set_track_buffer(&self, url: String, buf: Vec<u8>, duration: Duration) {
+    pub fn set_track_buffer(&self, url: &str, buf: Vec<u8>, duration: Duration) {
         let mut lock = self.state.lock().unwrap();
-        match lock.player.tracks.iter().position(|x|x.url == url) {
+        match lock.player.tracks.iter().position(|x| x.url == url) {
             None => {}
             Some(pos) => {
                 lock.player.tracks[pos].buffer = buf;
@@ -215,4 +219,3 @@ impl SharedState {
         lock.player.current_track.art_id
     }
 }
-

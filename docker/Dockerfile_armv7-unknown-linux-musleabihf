@@ -1,0 +1,13 @@
+FROM ghcr.io/cross-rs/armv7-unknown-linux-musleabihf:main
+
+RUN apt update
+RUN apt-get install -y wget pkg-config bzip2 make automake libtool
+ENV CC=arm-linux-musleabihf-gcc
+RUN wget http://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.11.tar.bz2 && tar xf alsa-lib-1.2.11.tar.bz2 \
+&& cd alsa-lib-1.2.11 && ./configure --enable-shared=yes --enable-static=no --with-pic --host=armv7-linux-musleabihf --prefix=/usr \
+&& make -j$(nproc) && make install
+
+ENV PKG_CONFIG_PATH=/usr/lib/pkgconfig
+ENV PKG_CONFIG_LIBDIR=/usr/lib
+ENV PKG_CONFIG_ALLOW_CROSS=1
+ENV RUSTFLAGS='-C target-feature=-crt-static'

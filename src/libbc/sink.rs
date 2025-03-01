@@ -1,4 +1,3 @@
-
 use anyhow::{Error, Result};
 use rodio::{OutputStream, OutputStreamHandle};
 use std::io;
@@ -40,7 +39,8 @@ fn get_output_stream() -> Result<(OutputStream, OutputStreamHandle)> {
                 .find(|x| x.name().unwrap() == b)
                 .unwrap();
             Ok(OutputStream::try_from_device(&dev)?)
-        } else { // WASAPI
+        } else {
+            // WASAPI
             Ok(OutputStream::try_default()?)
         }
     }
@@ -50,13 +50,12 @@ fn get_output_stream() -> Result<(OutputStream, OutputStreamHandle)> {
     }
 }
 
-#[test]
-fn list_host_devices() {
+pub fn list_host_devices() {
     let host = cpal::default_host();
     // let host = cpal::host_from_id(cpal::HostId::Asio).expect("failed to initialise ASIO host");
     let devices = host.output_devices().unwrap();
     for device in devices {
-        let dev: rodio::Device = device.into();
+        let dev: rodio::Device = device;
         let dev_name: String = dev.name().unwrap();
         println!(" # Device : {}", dev_name);
     }
@@ -85,10 +84,7 @@ impl Mp3 {
         );
         match rodio::decoder::Decoder::new_mp3(mss) {
             Err(e) => Err(Error::from(e)),
-            Ok(decoder)
-                => Ok(decoder)
+            Ok(decoder) => Ok(decoder),
         }
     }
 }
-
-

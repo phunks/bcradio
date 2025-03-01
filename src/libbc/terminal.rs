@@ -1,24 +1,27 @@
-
-use colored::Colorize;
-use std::fmt::Display;
-use std::{cmp, io, process};
-use std::io::StdoutLock;
+use colored_text::Colorize;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use crossterm::{cursor, execute};
-use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::prelude::Style;
 use ratatui::style::Stylize;
-use ratatui::Terminal;
 use ratatui::widgets::Borders;
+use ratatui::Terminal;
+use std::fmt::Display;
+use std::io::StdoutLock;
+use std::{cmp, io, process};
+use anyhow::Error;
 use tui_textarea::{CursorMove, Input, Key, TextArea};
 use viu::app;
 use viu::config::Config;
 use viuer::Config as ViuerConfig;
 
 #[cfg(windows)]
-use crate::debug_println;
+use log::info;
 use crate::libbc::args::args_img_size;
+use crate::models::bc_error::BcradioError;
 
 pub fn init() {
     enable_color_on_windows();
@@ -30,9 +33,13 @@ fn enable_color_on_windows() {
 }
 
 pub(crate) fn clear_screen() {
-    execute!(io::stdout(),
-        Clear(ClearType::All),
-        cursor::MoveTo(0, 0)).unwrap();
+    execute!(io::stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0)).unwrap();
+}
+pub struct Quit;
+impl Drop for Quit {
+    fn drop(&mut self) {
+        quit(Error::from(BcradioError::Quit));
+    }
 }
 
 pub(crate) fn quit(e: anyhow::Error) -> ! {
@@ -62,7 +69,7 @@ pub fn asio_kill() {
     sys.refresh_all();
     let exec_name = try_get_current_executable_name().unwrap();
     for process in sys.processes_by_exact_name(&*exec_name) {
-        debug_println!("[{}] {}\r", process.pid(), process.name());
+        info!("[{}] {}\r", process.pid(), process.name());
         if let Some(process) = sys.process(Pid::from(process.pid().as_u32() as usize)) {
             if process.kill_with(Signal::Kill).is_none() {
                 eprintln!("This signal isn't supported on this platform");
@@ -75,15 +82,20 @@ pub fn print_error(error: impl Display) {
     println!("{} {}", "Error:".bright_red(), error);
 }
 
-pub fn show_alt_term<T>(v: Vec<T>, img: Option<Vec<u8>>) -> anyhow::Result<()>
-    where
-        T: Into<String> + Clone,
+pub fn show_alt_term<T>(v: &Vec<T>, img: Option<Vec<u8>>) -> anyhow::Result<()>
+where
+    T: Into<String>, String: for<'a> From<&'a T>
 {
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
 
     enable_raw_mode()?;
-    execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 1), cursor::Hide)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        cursor::MoveTo(0, 1),
+        cursor::Hide
+    )?;
 
     let mut f = true;
     match img {
@@ -104,7 +116,7 @@ pub fn show_alt_term<T>(v: Vec<T>, img: Option<Vec<u8>>) -> anyhow::Result<()>
             };
 
             app::viu(config, img)?;
-        },
+        }
         None => f = false,
     }
 
@@ -122,69 +134,61 @@ pub fn show_alt_term<T>(v: Vec<T>, img: Option<Vec<u8>>) -> anyhow::Result<()>
     }
 
     loop {
-    match crossterm::event::read()?.into() {
-        Input {
-            key: Key::Esc,
-            ..
-            } => { break },
-        Input {
-            key: Key::Char(_c), // any
-            ..
-            } => { break },
-        Input { .. } => {}
+        match crossterm::event::read()?.into() {
+            Input { key: Key::Esc, .. } => break,
+            Input {
+                key: Key::Char(_c), // any
+                ..
+            } => break,
+            Input { .. } => {}
         }
     }
 
-    execute!(
-        term.backend_mut(),
-        LeaveAlternateScreen,
-        cursor::Show,
-    )?;
+    execute!(term.backend_mut(), LeaveAlternateScreen, cursor::Show,)?;
 
     Ok(())
 }
 
 pub fn draw(
     term: &mut Terminal<CrosstermBackend<StdoutLock>>,
-    textarea: TextArea
+    textarea: TextArea,
 ) -> anyhow::Result<()> {
     term.draw(|f| {
         const MIN_HEIGHT: usize = 13;
         let height = cmp::max(textarea.lines().len(), MIN_HEIGHT) as u16;
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(height),
-                Constraint::Min(0)
-            ].as_slice())
-            .split(f.size());
-        f.render_widget(textarea.widget(), chunks[0]);
+            .constraints([Constraint::Length(height), Constraint::Min(0)].as_slice())
+            .split(f.area());
+        f.render_widget(&textarea, chunks[0]);
     })?;
     Ok(())
 }
 
 pub fn draw_img(
     term: &mut Terminal<CrosstermBackend<StdoutLock>>,
-    textarea: TextArea
+    textarea: TextArea,
 ) -> anyhow::Result<()> {
     term.draw(|f| {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(args_img_size() + 1),
-                Constraint::Percentage(100),
-            ].as_slice())
-            .split(f.size());
+            .constraints(
+                [
+                    Constraint::Length(args_img_size() + 1),
+                    Constraint::Percentage(100),
+                ]
+                .as_slice(),
+            )
+            .split(f.area());
 
-        f.render_widget(textarea.widget(), chunks[1])
+        f.render_widget(&textarea, chunks[1])
     })?;
     Ok(())
 }
 
-
-pub fn show_alt_term2<T>(v: Vec<T>) -> anyhow::Result<Option<usize>>
-    where
-        T: Into<String> + Clone,
+pub fn show_alt_term2<T>(v: &Vec<T>) -> anyhow::Result<Option<usize>>
+where
+    T: Into<String>, String: for<'a> From<&'a T>
 {
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
@@ -203,26 +207,17 @@ pub fn show_alt_term2<T>(v: Vec<T>) -> anyhow::Result<Option<usize>>
     loop {
         draw(&mut term, textarea.clone())?;
         match crossterm::event::read()?.into() {
-            Input {
-                key: Key::Esc,
-                ..
-            } => { break },
-            Input {
-                key: Key::Up,
-                ..
-            } | Input {
+            Input { key: Key::Esc, .. } => break,
+            Input { key: Key::Up, .. }
+            | Input {
                 key: Key::Char('k'),
                 ..
-            } => {
-                match textarea.cursor().0 {
-                    0 => textarea.move_cursor(CursorMove::Bottom),
-                    _ => textarea.move_cursor(CursorMove::Up),
-                }
+            } => match textarea.cursor().0 {
+                0 => textarea.move_cursor(CursorMove::Bottom),
+                _ => textarea.move_cursor(CursorMove::Up),
             },
-            Input {
-                key: Key::Down,
-                ..
-            } | Input {
+            Input { key: Key::Down, .. }
+            | Input {
                 key: Key::Char('j'),
                 ..
             } => {
@@ -231,30 +226,25 @@ pub fn show_alt_term2<T>(v: Vec<T>) -> anyhow::Result<Option<usize>>
                 } else {
                     textarea.move_cursor(CursorMove::Down);
                 }
-            },
+            }
             Input {
                 key: Key::Char(_c), // any
                 ..
-            } => { break },
+            } => break,
             Input {
-                key: Key::Enter,
-                ..
+                key: Key::Enter, ..
             } => {
                 line = match textarea.cursor().0 {
                     0 => None,
                     _ => Some(textarea.cursor().0),
                 };
                 break;
-            },
+            }
             Input { .. } => {}
         }
     }
 
-    execute!(
-        term.backend_mut(),
-        LeaveAlternateScreen,
-        cursor::Show,
-    )?;
+    execute!(term.backend_mut(), LeaveAlternateScreen, cursor::Show,)?;
 
     Ok(line)
 }

@@ -45,7 +45,7 @@ pub struct Results {
     pub label_url: Option<String>,
     pub band_location: Option<String>,
     track_count: Option<i32>,
-    pub item_duration: f32,
+    pub item_duration: Option<f32>,
     pub item_tags: Option<String>,
 }
 

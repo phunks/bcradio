@@ -1,7 +1,7 @@
-
+use clap::{Parser};
 use std::fmt::Debug;
 use std::sync::Mutex;
-use clap::Parser;
+use log::LevelFilter;
 
 const ABOUT: &str = "
 A command line music player for https://bandcamp.com
@@ -22,18 +22,27 @@ A command line music player for https://bandcamp.com
 #[derive(Parser, Debug)]
 #[clap(author, version, about = ABOUT)]
 pub struct Args {
+    /// verbose log
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
     /// disable SSL verification
     #[arg(long, short)]
-    pub no_ssl_verify: bool,
+    no_ssl_verify: bool,
     /// image size
     #[arg(long, short, default_value_t = 30)]
-    pub img_width: u16,
+    img_width: u16,
+    /// socks5
+    #[arg(hide = true, short, long, help = "socks5")]
+    proxy: Option<String>,
     /// genre
-    #[arg(short, long, help = "genre")]
-    pub genre: Option<String>,
+    #[arg(hide = true, short, long, help = "genre")]
+    genre: Option<String>,
     /// sub genre
-    #[arg(short, long, help = "sub genre")]
-    pub sub_genre: Option<String>,
+    #[arg(hide = true, short, long, help = "sub genre")]
+    sub_genre: Option<String>,
+    /// list host devices
+    #[arg(hide = true, short, num_args(0), required = false)]
+    list_devices: bool,
 }
 
 pub fn about() -> &'static str {
@@ -47,16 +56,32 @@ pub fn init_args() {
     ARGS.lock().unwrap().replace(arg);
 }
 
+pub fn args_verbose_log() -> LevelFilter {
+    match ARGS.lock().unwrap().as_ref().unwrap().verbose {
+        1 => LevelFilter::Info,
+        2 => LevelFilter::Debug,
+        3 => LevelFilter::Trace,
+        _ => LevelFilter::Off
+    }
+}
+#[test]
+fn test_verbose() {
+    println!("{:?}", LevelFilter::Info.to_string());
+}
 pub fn args_no_ssl_verify() -> bool {
     ARGS.lock().unwrap().as_ref().unwrap().no_ssl_verify
 }
 
+pub fn args_socks() -> Option<String> {
+    ARGS.lock().unwrap().as_ref().unwrap().proxy.clone()
+}
+
 pub fn args_img_size() -> u16 {
-    return match ARGS.lock().unwrap().as_ref().unwrap().img_width {
-        100 .. => 100,
-        ..= 10 => 10,
+    match ARGS.lock().unwrap().as_ref().unwrap().img_width {
+        100.. => 100,
+        ..=10 => 10,
         a => a,
-    };
+    }
 }
 
 pub fn args_genre() -> Option<String> {
@@ -66,3 +91,8 @@ pub fn args_genre() -> Option<String> {
 pub fn args_sub_genre() -> Option<String> {
     ARGS.lock().unwrap().as_ref().unwrap().sub_genre.to_owned()
 }
+
+pub fn args_list_devices() -> bool {
+    ARGS.lock().unwrap().as_ref().unwrap().list_devices
+}
+

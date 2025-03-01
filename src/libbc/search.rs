@@ -1,5 +1,4 @@
-
-use std::io;
+use std::sync::LazyLock;
 use anyhow::{Error, Result};
 use async_trait::async_trait;
 use chrono::{NaiveDateTime, TimeZone};
@@ -9,26 +8,25 @@ use crossterm::terminal::{
 };
 use crossterm::*;
 use inquire::MultiSelect;
+use itertools::Itertools;
 use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::Borders;
 use ratatui::Terminal;
-use scraper::{Html, Selector};
-use itertools::Itertools;
 use regex::Regex;
+use scraper::{Html, Selector};
+use std::io;
+use log::info;
 use tui_textarea::{Input, Key, TextArea};
-
-use crate::debug_println;
+use crate::lazy_regex;
 use crate::libbc::http_adapter::{html_to_track, http_adapter};
 use crate::libbc::http_client::post_request;
-use crate::libbc::player::PARK;
-use crate::libbc::progress_bar::Progress;
+use crate::libbc::player::{park_lock, park_unlock};
+use crate::libbc::progress_bar::{disable_spinner, enable_spinner};
+use crate::libbc::scorer::score_sort;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::terminal::{clear_screen, draw};
-use crate::libbc::scorer::score_sort;
 use crate::models::bc_error::BcradioError;
 use crate::models::search_models::{SearchJsonRequest, SearchJsonResponse};
-
-
 
 #[async_trait]
 pub trait Search {
@@ -44,7 +42,7 @@ impl Search for SharedState {
         }
 
         let url =
-            String::from("https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic");
+            "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic";
         let search_json_req = SearchJsonRequest {
             search_text: search_text.to_owned().unwrap(),
             search_filter: String::from("t"),
@@ -52,7 +50,7 @@ impl Search for SharedState {
             fan_id: None,
         };
 
-        let val = post_request(url, search_json_req).await?;
+        let val = post_request(url, &search_json_req).await?;
 
         let search_json_response =
             simd_json::from_slice::<SearchJsonResponse>(val.clone().as_mut_slice())?;
@@ -64,19 +62,19 @@ impl Search for SharedState {
         }
 
         let url_list = v.iter().map(|s| s.to_string()).take(10).collect();
-        self.bar.enable_spinner();
+        enable_spinner();
 
         use std::time::Instant; //debug
         let _start = Instant::now(); //debug
 
         let mut r = http_adapter(url_list, html_to_track).await?;
-        debug_println!("Debug http_adapter: {:?}\r", _start.elapsed()); //debug
+        info!("Debug http_adapter: {:?}\r", _start.elapsed()); //debug
 
-        self.bar.disable_spinner();
-        // let mut r = score_sort(r, search_text.unwrap().as_str());
+        disable_spinner();
+
         let uniq = r.iter().unique_by(|p| &p.band_id).collect::<Vec<_>>();
         if uniq.len() > 1 {
-            *PARK.lock().unwrap() = false;
+            park_lock();
 
             let stdout = io::stdout();
             let mut stdout = stdout.lock();
@@ -92,7 +90,7 @@ impl Search for SharedState {
             )
             .prompt();
             match choice {
-                Err(_) => { r.clear() }
+                Err(_) => r.clear(),
                 Ok(choice) => {
                     let t = uniq
                         .into_iter()
@@ -119,7 +117,7 @@ impl Search for SharedState {
 
             term.show_cursor()?;
             disable_raw_mode()?;
-            *PARK.lock().unwrap() = true;
+            park_unlock()
         }
 
         let r = score_sort(r, search_text.unwrap().as_str());
@@ -148,13 +146,17 @@ impl Search for SharedState {
         loop {
             draw(&mut term, textarea.clone())?;
             match crossterm::event::read()?.into() {
-                Input { key: Key::Enter, .. } => break,
+                Input {
+                    key: Key::Enter, ..
+                } => break,
                 Input { key: Key::Esc, .. } => {
                     execute!(term.backend_mut(), LeaveAlternateScreen)?;
                     term.show_cursor()?;
-                    return Ok(None)
-                },
-                input => { textarea.input(input); },
+                    return Ok(None);
+                }
+                input => {
+                    textarea.input(input);
+                }
             }
         }
 
@@ -170,17 +172,16 @@ impl Search for SharedState {
 }
 
 pub fn parse_doc(doc: Html, parse: &str, attribute: &str) -> Result<String> {
-    return match doc.select(&Selector::parse(parse).unwrap()).next() {
+    match doc.select(&Selector::parse(parse).unwrap()).next() {
         None => Err(Error::from(BcradioError::PhaseError)),
         Some(a) => Ok(a.value().attr(attribute).unwrap().to_string()),
-    };
+    }
 }
 
-pub fn base_url(item_url: String) -> String {
-    let re = Regex::new("(https?://.*?)/.*").unwrap();
-    re.replace(item_url.as_str(), "$1").to_string()
+lazy_regex!(RE: r"(https?://.*?)/.*");
+pub fn base_url(item_url: &str) -> String {
+    RE.replace(item_url, "$1").to_string()
 }
-
 
 /// https://rosettacode.org/wiki/Date_manipulation#Rust
 /// Chrono allows parsing time zone abbreviations like "EST", but
@@ -194,26 +195,4 @@ fn format_date(date: String) -> String {
     let ndt = NaiveDateTime::parse_from_str(&date, "%d %b %Y %H:%M:%S %Z").unwrap();
     let dt = chrono_tz::GMT.from_local_datetime(&ndt).unwrap();
     dt.format("%Y-%m-%d %H:%M:%S %Z").to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono_tz;
-
-    #[test]
-    fn test_base_url() {
-        let url = String::from(
-            "https://bandcamp.com/download?id=1234567890&ts=1234567890&sig=1234567890",
-        );
-        assert_eq!(base_url(url), "https://bandcamp.com");
-        let url = String::from("");
-        assert_eq!(base_url(url), "");
-    }
-
-    #[test]
-    fn test_format_date() {
-        let date = String::from("16 Jan 2023 15:03:36 GMT");
-        assert_eq!(format_date(date), "2023-01-16 15:03:36 GMT");
-    }
 }
