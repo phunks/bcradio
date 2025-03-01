@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "0.8.9"
+version = "0.9.0"
 edition = "2021"
 license = "MIT"
 description = "A command line music player for https://bandcamp.com, written in Rust."
@@ -27,7 +27,6 @@ async-trait = { version = "0.1.77" }
 chrono = { version = "0.4.34"}
 clap = { version = "4.5.1", features = ["derive"] }
 colored_text = { version = "0.3.0" }
-colored = "3.0.0"
 cpal = { version = "0.15.2", features = ["asio"] }
 crossterm = { version = "0.28.1", features = ["event-stream"] }
 futures = { version = "0.3.30" }
@@ -61,6 +60,7 @@ pretty_env_logger = "0.5.0"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52.0" }
 sysinfo = { version = "0.30.0" }
+colored = { version = "3.0.0" }
 
 [patch.crates-io]
 cpal = { git = "https://github.com/RustAudio/cpal.git", branch = "master", commit = "f51589c" }
