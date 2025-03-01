@@ -1,0 +1,14 @@
+FROM ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main
+
+RUN apt update
+RUN apt-get install -y wget pkg-config bzip2 make automake libtool
+ENV CC=aarch64-linux-gnu-gcc
+RUN wget http://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.11.tar.bz2 && tar xf alsa-lib-1.2.11.tar.bz2 \
+&& cd alsa-lib-1.2.11 && ./configure --enable-shared=yes --enable-static=no --with-pic --host=aarch64-linux-gnu --prefix=/usr \
+&& make -j$(nproc) && make install
+
+ENV PKG_CONFIG_PATH=/usr/lib/pkgconfig
+ENV PKG_CONFIG_LIBDIR=/usr/lib
+ENV PKG_CONFIG_ALLOW_CROSS=1
+
+

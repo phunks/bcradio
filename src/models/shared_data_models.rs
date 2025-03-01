@@ -1,11 +1,11 @@
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 
-use chrono::{DateTime, Local};
-use serde::{Deserialize, Serialize};
 use crate::models::bc_discover_index::{Element, PostData};
 use crate::models::bc_discover_json::Results;
 use crate::models::search_models::ItemPage;
+use chrono::{DateTime, Local};
+use serde::{Deserialize, Serialize};
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Track {
@@ -38,12 +38,6 @@ impl Clone for Track {
             subgenre: self.subgenre.clone(),
         }
     }
-}
-
-#[derive(Default, Debug, Clone)]
-pub struct Link {
-    pub subdomain: String,
-    pub slug: String,
 }
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
@@ -90,6 +84,7 @@ impl Clone for CurrentTrack {
 #[derive(Default, Debug)]
 pub struct State {
     pub player: PlaylistInfo,
+    #[allow(unused)]
     pub server: ServerInfo,
     phantom: PhantomData<&'static ()>,
 }

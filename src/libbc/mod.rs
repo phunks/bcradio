@@ -1,12 +1,12 @@
+pub mod args;
+pub mod http_adapter;
+pub mod http_client;
 mod macros;
 pub mod player;
 pub mod playlist;
 pub mod progress_bar;
+pub mod scorer;
 pub mod search;
 pub mod shared_data;
 pub mod sink;
 pub mod terminal;
-pub mod http_client;
-pub mod args;
-pub mod http_adapter;
-pub mod scorer;
