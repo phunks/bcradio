@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 pub struct DiscoverIndexRequest {
     #[serde(rename = "appData")]
     pub app_data: AppData,
-    #[serde(rename = "pageContext")]
-    pub page_context: PageContext,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,29 +52,6 @@ pub struct SeoData {
     title: String,
     description: String,
     canonical_url: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct PageContext {
-    #[serde(rename = "fanId")]
-    fan_id: Option<i64>,
-    #[serde(rename = "isLoggedIn")]
-    is_logged_in: bool,
-    #[serde(rename = "isAdmin")]
-    is_admin: bool,
-    #[serde(rename = "isMobile")]
-    is_mobile: bool,
-    languages: Languages,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Languages {
-    en: String,
-    de: String,
-    es: String,
-    fr: String,
-    pt: String,
-    ja: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

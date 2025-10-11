@@ -32,7 +32,7 @@ where
 }
 
 trait Scorer {
-    fn scorer(self, s: &str) -> Score<Self>
+    fn scorer(self, s: &str) -> Score<'_, Self>
     where
         Self: Sized;
 }
@@ -43,7 +43,7 @@ where
     I: Sized,
 {
     #[inline]
-    fn scorer(self, s: &str) -> Score<Self>
+    fn scorer(self, s: &str) -> Score<'_, Self>
     where
         Self: Sized,
     {

@@ -112,7 +112,10 @@ impl PlayList for SharedState {
 
         match json {
             Ok(r) => Ok(r),
-            Err(e) => Err(Error::from(e)),
+            Err(e) => {
+                eprintln!("{e}");
+                Err(Error::from(e))
+            },
         }
     }
 
