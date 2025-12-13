@@ -178,12 +178,12 @@ impl Player<'static> for SharedState {
                 )]);
                 v.append(&mut vec![format!(
                     " {:>14} {} {:3.2}",
-                    "Item Price:", g.item_currency, g.item_price
+                    "Item Price:", g.price.currency, g.price.amount as f64 / 100.0
                 )]);
                 v.append(&mut vec![format!(
                     " {:>14} {}",
                     "Labels:",
-                    g.label_name.unwrap_or_default()
+                    g.band_name
                 )]);
                 v.append(&mut vec![format!(
                     " {:>14} {}",
@@ -197,9 +197,9 @@ impl Player<'static> for SharedState {
                 v.append(&mut vec![format!(
                     " {:>14} {}",
                     "Label URL:",
-                    g.label_url.unwrap_or_default()
+                    g.band_url
                 )]);
-                v.append(&mut vec![format!(" {:>14} {}", "Band URL:", g.band_url)]);
+                // v.append(&mut vec![format!(" {:>14} {}", "Band URL:", g.band_url)]);
                 v.append(&mut vec![format!(" {:>14} {}", "Item URL:", g.item_url)]);
             }
             ResultsJson::Search(g) => {

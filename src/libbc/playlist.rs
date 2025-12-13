@@ -360,10 +360,10 @@ impl PlayList for SharedState {
             track_list.append(&mut VecDeque::from([Track {
                 album_title: i.title.to_owned(),
                 artist_name: i.featured_track.band_name.to_owned(),
-                art_id: i.item_image_id,
+                art_id: i.primary_image.image_id,
                 band_id: i.band_id,
                 url: i.featured_track.stream_url.to_owned(),
-                duration: i.item_duration.unwrap_or_default(),
+                duration: i.featured_track.duration.unwrap_or_default(),
                 track: i.featured_track.title.to_owned(),
                 buffer: vec![],
                 results: ResultsJson::Select(Box::new(i.clone())),
