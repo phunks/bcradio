@@ -30,6 +30,14 @@ jobs:
         shell: bash
         run: |
           echo "PROJECT_NAME=$(sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -n1)" >> $GITHUB_ENV
+      - name: Install Asio Drivers
+        if: matrix.job.os == 'windows-latest'
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri https://download.steinberg.net/sdk_downloads/ASIO-SDK_2.3.4_2025-10-15.zip -OutFile ASIO-SDK_2.3.4_2025-10-15.zip
+          unzip ASIO-SDK_2.3.4_2025-10-15.zip
+          $ASIO_DIR = "$env:GITHUB_WORKSPACE\ASIOSDK"
+          Add-Content -Path $env:GITHUB_ENV -Value "CPAL_ASIO_DIR=$ASIO_DIR"
       - name: Build
         uses: houseabsolute/actions-rust-cross@v1
         with:
