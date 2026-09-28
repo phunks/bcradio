@@ -1,0 +1,168 @@
+diff --git a/inquire/examples/select.rs b/inquire/examples/select.rs
+index 54767c3..c383162 100644
+--- a/inquire/examples/select.rs
++++ b/inquire/examples/select.rs
+@@ -1,7 +1,10 @@
+ use inquire::Select;
+-
++#[macro_export]
++macro_rules! vec_of_strings {
++    ($($x:expr),*) => (vec![$($x.to_string()),*]);
++}
+ fn main() {
+-    let options = vec![
++    let options = vec_of_strings!(
+         "Banana",
+         "Apple",
+         "Strawberry",
+@@ -12,10 +15,12 @@ fn main() {
+         "Orange",
+         "Pear",
+         "Avocado",
+-        "Pineapple",
+-    ];
++        "Pineapple"
++    );
+ 
+-    let ans = Select::new("What's your favorite fruit?", options).prompt();
++    let ans = Select::new("What's your favorite fruit?", options)
++        .with_raw_return(true)
++        .prompt();
+ 
+     match ans {
+         Ok(choice) => println!("{choice}! That's mine too!"),
+diff --git a/inquire/src/prompts/select/config.rs b/inquire/src/prompts/select/config.rs
+index 7e8ea69..e909a45 100644
+--- a/inquire/src/prompts/select/config.rs
++++ b/inquire/src/prompts/select/config.rs
+@@ -9,6 +9,8 @@ pub struct SelectConfig {
+     pub page_size: usize,
+     /// Whether to reset the cursor to the first option on filter input change.
+     pub reset_cursor: bool,
++
++    pub raw_return: bool,
+ }
+ 
+ impl<T> From<&Select<'_, T>> for SelectConfig {
+@@ -17,6 +19,7 @@ impl<T> From<&Select<'_, T>> for SelectConfig {
+             vim_mode: value.vim_mode,
+             page_size: value.page_size,
+             reset_cursor: value.reset_cursor,
++            raw_return: value.raw_return,
+         }
+     }
+ }
+diff --git a/inquire/src/prompts/select/mod.rs b/inquire/src/prompts/select/mod.rs
+index 02d10bb..e72dc3f 100644
+--- a/inquire/src/prompts/select/mod.rs
++++ b/inquire/src/prompts/select/mod.rs
+@@ -77,6 +77,9 @@ pub struct Select<'a, T> {
+     /// Options displayed to the user.
+     pub options: Vec<T>,
+ 
++    /// return raw
++    pub raw_return: bool,
++
+     /// Help message to be presented to the user.
+     pub help_message: Option<&'a str>,
+ 
+@@ -122,7 +125,7 @@ pub struct Select<'a, T> {
+ 
+ impl<'a, T> Select<'a, T>
+ where
+-    T: Display,
++    T: Display + From<String>,
+ {
+     /// String formatter used by default in [Select](crate::Select) prompts.
+     /// Simply prints the string value contained in the selected option.
+@@ -204,6 +207,7 @@ where
+         Self {
+             message,
+             options,
++            raw_return: false,
+             help_message: Self::DEFAULT_HELP_MESSAGE,
+             page_size: Self::DEFAULT_PAGE_SIZE,
+             vim_mode: Self::DEFAULT_VIM_MODE,
+@@ -300,6 +304,12 @@ where
+         self
+     }
+ 
++    /// return raw
++    pub fn with_raw_return(mut self, raw: bool) -> Self {
++        self.raw_return = raw;
++        self
++    }
++
+     /// Parses the provided behavioral and rendering options and prompts
+     /// the CLI user for input according to the defined rules.
+     ///
+diff --git a/inquire/src/prompts/select/prompt.rs b/inquire/src/prompts/select/prompt.rs
+index e7c065d..66e3045 100644
+--- a/inquire/src/prompts/select/prompt.rs
++++ b/inquire/src/prompts/select/prompt.rs
+@@ -14,7 +14,10 @@ use crate::{
+ 
+ use super::{action::SelectPromptAction, config::SelectConfig};
+ 
+-pub struct SelectPrompt<'a, T> {
++pub struct SelectPrompt<'a, T>
++where
++    T: From<String>,
++{
+     message: &'a str,
+     config: SelectConfig,
+     options: Vec<T>,
+@@ -29,7 +32,7 @@ pub struct SelectPrompt<'a, T> {
+ 
+ impl<'a, T> SelectPrompt<'a, T>
+ where
+-    T: Display,
++    T: Display + From<String>,
+ {
+     pub fn new(so: Select<'a, T>) -> InquireResult<Self> {
+         if so.options.is_empty() {
+@@ -156,10 +159,28 @@ where
+     }
+ }
+ 
++trait Answer<'a, T> {
++    fn get_answer(&mut self) -> ListOption<T>;
++}
++impl<'a, T> Answer<'_, T> for SelectPrompt<'a, T>
++where
++    T: From<String>,
++{
++    fn get_answer(&mut self) -> ListOption<T> {
++        let index = 0;
++        let i = self.input.clone();
++        let j = i.unwrap().clone().content().to_owned();
++        let b = String::from(j).to_ascii_lowercase();
++        let a = b.into();
++
++        ListOption::new(index, a)
++    }
++}
++
+ impl<'a, Backend, T> Prompt<Backend> for SelectPrompt<'a, T>
+ where
+     Backend: SelectBackend,
+-    T: Display,
++    T: Display + From<String>,
+ {
+     type Config = SelectConfig;
+     type InnerAction = SelectPromptAction;
+@@ -185,7 +206,13 @@ where
+     fn submit(&mut self) -> InquireResult<Option<ListOption<T>>> {
+         let answer = match self.has_answer_highlighted() {
+             true => Some(self.get_final_answer()),
+-            false => None,
++            false => {
++                if self.config.raw_return {
++                    Some(self.get_answer())
++                } else {
++                    None
++                }
++            }
+         };
+ 
+         Ok(answer)

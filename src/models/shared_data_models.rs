@@ -108,6 +108,12 @@ impl Clone for ServerInfo {
 pub struct PlaylistInfo {
     pub current_track: CurrentTrack,
     pub tracks: VecDeque<Track>,
+    pub history: VecDeque<CurrentTrack>,
+    pub ai_description: Option<String>,
+    pub ai_terms: Vec<String>,
+    pub ai_retry_after: Option<DateTime<Local>>,
+    pub ai_generation: u64,
+    pub ai_refill_in_progress: bool,
     pub post_data: PostData,
     pub genres: Vec<Element>,
     pub subgenres: Vec<Element>,

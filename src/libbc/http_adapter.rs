@@ -1,15 +1,15 @@
+use crate::libbc::http_client::client_builder;
 use crate::libbc::search::{base_url, parse_doc};
 use crate::models::search_models::{Current, ItemPage, TrackInfo};
 use crate::models::shared_data_models::Track;
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use bytes::{Bytes, BytesMut};
 use futures::{stream, StreamExt, TryStreamExt};
-use reqwest::{header};
+use reqwest::header;
 use scraper::Html;
 use simd_json::prelude::{ValueAsScalar, ValueObjectAccess};
 use simd_json::OwnedValue as Value;
 use std::future::Future;
-use crate::libbc::http_client::client_builder;
 
 const PARALLEL_REQUESTS: usize = 4;
 type FA<R> = fn(res: Bytes) -> R;
@@ -33,25 +33,17 @@ where
     stream::iter(urls)
         .map(|url| {
             let client = client.clone();
-            tokio::spawn(async move {
-                match client.get(url).send().await {
-                    Ok(r) => match r.error_for_status() {
-                        Ok(res) => Ok(res),
-                        Err(e) => Err(anyhow!("status: {}", e)),
-                    },
-                    Err(e) => Err(anyhow!("response: {}", e)),
-                }
-            })
+            async move {
+                let response = client.get(&url).send().await?.error_for_status()?;
+                let body = response.bytes().await?;
+                plug(body)
+                    .await
+                    .with_context(|| format!("failed to parse search result: {url}"))
+            }
         })
         .buffer_unordered(PARALLEL_REQUESTS)
-        .filter_map(|x| async move { x.ok()?.ok() })
-        .map(move |v| tokio::spawn(async move { plug(v.bytes().await?).await }))
-        .buffer_unordered(PARALLEL_REQUESTS)
-        .filter_map(|x| async move { x.ok() })
         .try_fold(Vec::<R>::new(), |mut acc, x| async move {
-            for t in x {
-                acc.push(t);
-            }
+            acc.extend(x);
             Result::<Vec<R>>::Ok(acc)
         })
         .await
@@ -61,7 +53,7 @@ pub async fn html_to_track(v: Bytes) -> Result<Vec<Track>> {
     match !v.is_empty() {
         true => match html_to_json(v.to_vec()) {
             Ok(t) => j2t(t),
-            _ => Ok(Vec::new()),
+            Err(e) => Err(e),
         },
         _ => Ok(Vec::new()),
     }
@@ -96,7 +88,9 @@ pub fn j2t(json: Value) -> Result<Vec<Track>> {
         current: Current {
             title: json["current"]["title"].to_string(),
             art_id: json["art_id"].as_i64(),
-            band_id: json["current"]["band_id"].as_i64().unwrap(),
+            band_id: json["current"]["band_id"]
+                .as_i64()
+                .context("search result missing current.band_id")?,
             release_date: json["current"]["publish_date"].to_string(),
         },
         artist: json["artist"].to_string(),
@@ -108,17 +102,21 @@ pub fn j2t(json: Value) -> Result<Vec<Track>> {
     let mut v: Vec<Track> = Vec::new();
 
     for i in tracks.trackinfo.iter() {
-        if i.file.is_none() {
+        let Some(url) = i.file.as_ref().and_then(|file| file.mp3_128.as_ref()) else {
             continue;
         };
+        let title = i
+            .title
+            .as_ref()
+            .context("playable search track missing title")?;
         let t = Track {
             album_title: tracks.current.title.to_owned(),
             artist_name: tracks.artist.to_owned(),
             art_id: tracks.current.art_id,
             band_id: tracks.current.band_id,
-            url: i.clone().file.unwrap().mp3_128.unwrap(),
+            url: url.clone(),
             duration: i.duration,
-            track: i.title.to_owned().unwrap(),
+            track: title.clone(),
             // buffer: vec![],
             // results: ResultsJson::Search(Box::new(tracks.clone())),
             // genre: None,
@@ -128,4 +126,37 @@ pub fn j2t(json: Value) -> Result<Vec<Track>> {
         v.push(t);
     }
     Ok(v)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn page(tracks: &str, band_id: &str) -> Value {
+        let text = format!(
+            r#"{{"url":"https://example.com/album/test","current":{{"title":"Album","band_id":{band_id},"publish_date":"today"}},"art_id":1,"artist":"Artist","trackinfo":{tracks}}}"#
+        );
+        simd_json::from_slice(&mut text.into_bytes()).unwrap()
+    }
+
+    #[test]
+    fn skips_tracks_without_playable_mp3() {
+        let tracks = r#"[{"id":1,"track_id":1,"license_type":0,"duration":10.0,"title":"Unavailable","file":{"mp3-128":null}},{"id":2,"track_id":2,"license_type":0,"duration":12.0,"title":"Playable","file":{"mp3-128":"https://example.com/song.mp3"}}]"#;
+        let result = j2t(page(tracks, "1")).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].track, "Playable");
+    }
+
+    #[test]
+    fn malformed_playable_track_returns_error_instead_of_panicking() {
+        let tracks = r#"[{"id":1,"track_id":1,"license_type":0,"duration":10.0,"file":{"mp3-128":"https://example.com/song.mp3"}}]"#;
+        assert!(j2t(page(tracks, "1"))
+            .unwrap_err()
+            .to_string()
+            .contains("title"));
+        assert!(j2t(page("[]", "null"))
+            .unwrap_err()
+            .to_string()
+            .contains("band_id"));
+    }
 }

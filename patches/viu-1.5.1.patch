@@ -1,0 +1,44 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 257e551..611c32f 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -14,7 +14,7 @@ exclude = ["/img", "/.github"]
+ [dependencies]
+ clap = { version = "4.4", features = ["cargo"] }
+ crossterm = { version = "0.28", default-features = false }
+-viuer = { version = "0.9", features = ["print-file"] }
++viuer = { version = "0.9.1", features = ["print-file"] }
+ ctrlc = { version = "3.4", features = ["termination"] }
+ image = "0.25"
+ 
+diff --git a/src/app.rs b/src/app.rs
+index d6085a8..d1ae589 100644
+--- a/src/app.rs
++++ b/src/app.rs
+@@ -64,6 +64,18 @@ pub fn run(mut conf: Config) -> ViuResult {
+     }
+ }
+ 
++#[allow(unused)]
++pub fn viu(conf: Config, buf: Vec<u8>) -> ViuResult {
++    let (_, rx_print) = mpsc::channel();
++    let (tx_print, _) = mpsc::channel();
++    let cursor = Cursor::new(&buf);
++    if try_print_gif(&conf, cursor, (&tx_print, &rx_print)).is_err() {
++        let img = image::load_from_memory(&buf)?;
++        viuer::print(&img, &conf.viuer_config)?;
++    };
++    Ok(())
++}
++
+ fn view_passed_files(conf: &mut Config, (tx, rx): TxRx) -> ViuResult {
+     //loop throught all files passed
+     for filename in &conf.files {
+diff --git a/src/lib.rs b/src/lib.rs
+new file mode 100644
+index 0000000..664043d
+--- /dev/null
++++ b/src/lib.rs
+@@ -0,0 +1,2 @@
++pub mod config;
++pub mod app;

@@ -11,19 +11,19 @@ use rodio::DeviceTrait;
 use symphonia::core::io::{MediaSource, MediaSourceStream};
 
 pub struct MusicStruct<'a> {
-    pub stream_handle: Option<OutputStreamHandle>,
+    pub stream_handle: OutputStreamHandle,
     phantom: PhantomData<&'a ()>,
 }
 
 impl MusicStruct<'_> {
-    pub(crate) fn new() -> Self {
-        let (stream, stream_handle) = get_output_stream().unwrap();
+    pub(crate) fn new() -> Result<Self> {
+        let (stream, stream_handle) = get_output_stream()?;
 
         std::mem::forget(stream);
-        MusicStruct {
-            stream_handle: Some(stream_handle),
+        Ok(MusicStruct {
+            stream_handle,
             phantom: PhantomData,
-        }
+        })
     }
 }
 

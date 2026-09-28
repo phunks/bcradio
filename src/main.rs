@@ -1,19 +1,19 @@
 use anyhow::{Error, Result};
-use crossterm::event::KeyEventKind;
-use crossterm::event::{self, poll, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use libbc::player::{PARK, RXTX};
-use std::ops::Deref;
+use async_channel::unbounded;
+use crossterm::event::{self, poll};
+use crossterm::terminal::disable_raw_mode;
 use std::time::Duration;
 
-use crate::libbc::args::init_args;
+use crate::libbc::args::{args_command, args_verbose_log, init_args, ConfigCommand};
+use crate::libbc::command::{from_event, Command};
 use crate::libbc::player;
-use crate::libbc::player::park_lock;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::terminal;
+use crate::logger::Logger;
 use crate::models::bc_error::BcradioError;
 
 mod libbc;
+mod logger;
 mod models;
 
 const LOGO: &str = r#"
@@ -26,59 +26,61 @@ const LOGO: &str = r#"
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _exit = terminal::Quit;
     init_args();
+    match args_command() {
+        Some(ConfigCommand::AiKey { action }) => return libbc::ai_key::run(*action),
+        Some(ConfigCommand::AiConfig { action }) => return libbc::ai::run_config(action),
+        None => {}
+    }
+    let _exit = terminal::Quit;
+    let _logger = Logger::build(args_verbose_log());
     terminal::init();
 
     println!("{}", LOGO);
 
     if let Err(e) = start_playing().await {
         disable_raw_mode()?;
-        terminal::print_error(e);
+        terminal::print_error(format!("{e:#}"));
     }
     Ok(())
 }
 
 async fn start_playing() -> Result<()> {
-    let hdl = tokio::spawn(<SharedState as player::Player>::player_thread());
-    loop {
-        if *PARK.lock().unwrap() {
-            enable_raw_mode()?;
-            if poll(Duration::from_millis(200))? {
-                match event::read()? {
-                    Event::Key(KeyEvent {
-                        code: KeyCode::Char('c'),
-                        modifiers: KeyModifiers::CONTROL,
-                        ..
-                    }) => {
-                        terminal::quit(Error::from(BcradioError::OperationInterrupted));
-                    }
-                    Event::Key(e) => {
-                        if e.kind == KeyEventKind::Press {
-                            if let KeyCode::Char(c) = e.code {
-                                match c {
-                                    's' | 'h' | 'm' | 'i' | 'l' => {
-                                        park_lock();
-                                        RXTX.deref().0.send(c).await?
-                                    }
-                                    'a'..='z' | '0'..='9' => RXTX.deref().0.send(c).await?,
-                                    'Q' => {
-                                        RXTX.deref().0.send(c).await?;
-                                        break;
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+    let state = SharedState::default();
+    let gate = state.input_gate.clone();
+    let (sender, receiver) = unbounded();
+    let mut hdl = tokio::spawn(<SharedState as player::Player>::player_thread(
+        state, receiver,
+    ));
+    // Only this loop reads the terminal while the player screen owns it.
+    // The modal screens (including inquire) use their own blocking readers.
+    let input_result: Result<()> = async {
+        loop {
+            if hdl.is_finished() {
+                return (&mut hdl).await?;
             }
-        } else {
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            if !gate.is_playback_active() {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+            terminal::ensure_raw_mode()?;
+            if !poll(Duration::from_millis(250))? {
+                continue;
+            }
+            if let Some(command) = from_event(event::read()?) {
+                if command == Command::Interrupt {
+                    return Err(Error::from(BcradioError::OperationInterrupted));
+                }
+                if command.opens_screen() {
+                    gate.hand_off_to_screen();
+                }
+                sender.send(command).await?;
+            }
         }
     }
-    hdl.await?.expect("player thread");
-    disable_raw_mode()?;
-    Ok(())
+    .await;
+    if input_result.is_err() {
+        hdl.abort();
+    }
+    input_result
 }

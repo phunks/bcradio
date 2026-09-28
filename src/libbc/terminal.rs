@@ -11,21 +11,53 @@ use ratatui::widgets::Borders;
 use ratatui::Terminal;
 use std::fmt::Display;
 use std::io::StdoutLock;
-use std::{cmp, io, process};
-use anyhow::Error;
+use std::{cmp, io};
 use tui_textarea::{CursorMove, Input, Key, TextArea};
 use viu::app;
 use viu::config::Config;
 use viuer::Config as ViuerConfig;
 
+use crate::libbc::args::args_img_size;
 #[cfg(windows)]
 use log::info;
-use crate::libbc::args::args_img_size;
-use crate::models::bc_error::BcradioError;
 
 pub fn init() {
     enable_color_on_windows();
     clear_screen();
+}
+pub fn ensure_raw_mode() -> io::Result<()> {
+    if !crossterm::terminal::is_raw_mode_enabled()? {
+        enable_raw_mode()?;
+    }
+    Ok(())
+}
+
+/// Restores the normal screen even when a modal view exits with an error.
+pub struct AlternateScreen {
+    mouse: bool,
+}
+
+impl AlternateScreen {
+    pub fn enter(mouse: bool) -> io::Result<Self> {
+        ensure_raw_mode()?;
+        execute!(io::stdout(), EnterAlternateScreen)?;
+        if mouse {
+            if let Err(e) = execute!(io::stdout(), crossterm::event::EnableMouseCapture) {
+                let _ = execute!(io::stdout(), LeaveAlternateScreen);
+                return Err(e);
+            }
+        }
+        Ok(Self { mouse })
+    }
+}
+
+impl Drop for AlternateScreen {
+    fn drop(&mut self) {
+        if self.mouse {
+            let _ = execute!(io::stdout(), crossterm::event::DisableMouseCapture);
+        }
+        let _ = execute!(io::stdout(), LeaveAlternateScreen, cursor::Show);
+    }
 }
 fn enable_color_on_windows() {
     #[cfg(windows)]
@@ -38,17 +70,11 @@ pub(crate) fn clear_screen() {
 pub struct Quit;
 impl Drop for Quit {
     fn drop(&mut self) {
-        quit(Error::from(BcradioError::Quit));
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), cursor::Show);
+        #[cfg(windows)]
+        asio_kill();
     }
-}
-
-pub(crate) fn quit(e: anyhow::Error) -> ! {
-    disable_raw_mode().unwrap();
-    execute!(io::stdout(), cursor::Show).unwrap();
-    #[cfg(windows)]
-    asio_kill();
-    println!("{e}");
-    process::exit(0);
 }
 
 #[cfg(windows)]
@@ -84,18 +110,13 @@ pub fn print_error(error: impl Display) {
 
 pub fn show_alt_term<T>(v: &Vec<T>, img: Option<Vec<u8>>) -> anyhow::Result<()>
 where
-    T: Into<String>, String: for<'a> From<&'a T>
+    T: Into<String>,
+    String: for<'a> From<&'a T>,
 {
+    let _screen = AlternateScreen::enter(false)?;
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
-
-    enable_raw_mode()?;
-    execute!(
-        stdout,
-        EnterAlternateScreen,
-        cursor::MoveTo(0, 1),
-        cursor::Hide
-    )?;
+    execute!(stdout, cursor::MoveTo(0, 1), cursor::Hide)?;
 
     let mut f = true;
     match img {
@@ -123,7 +144,7 @@ where
     let backend = CrosstermBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
     let mut textarea = TextArea::from(v);
-    textarea.set_cursor_style(Style::new().hidden());
+    textarea.set_cursor_style(Style::default().hidden());
     textarea.set_block(ratatui::widgets::block::Block::default().borders(Borders::NONE));
 
     if f {
@@ -143,8 +164,6 @@ where
             Input { .. } => {}
         }
     }
-
-    execute!(term.backend_mut(), LeaveAlternateScreen, cursor::Show,)?;
 
     Ok(())
 }
@@ -188,13 +207,13 @@ pub fn draw_img(
 
 pub fn show_alt_term2<T>(v: &Vec<T>) -> anyhow::Result<Option<usize>>
 where
-    T: Into<String>, String: for<'a> From<&'a T>
+    T: Into<String>,
+    String: for<'a> From<&'a T>,
 {
+    let _screen = AlternateScreen::enter(false)?;
     let stdout = io::stdout();
     let mut stdout = stdout.lock();
-
-    enable_raw_mode()?;
-    execute!(stdout, EnterAlternateScreen, cursor::MoveTo(0, 1))?;
+    execute!(stdout, cursor::MoveTo(0, 1))?;
 
     let backend = CrosstermBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
@@ -243,8 +262,6 @@ where
             Input { .. } => {}
         }
     }
-
-    execute!(term.backend_mut(), LeaveAlternateScreen, cursor::Show,)?;
 
     Ok(line)
 }

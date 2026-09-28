@@ -30,17 +30,16 @@ pub struct Results {
     pub band_id: i64, //label id
     pub album_artist: Option<String>,
     pub band_name: String, //labels
-    pub band_url: String, //label url
+    pub band_url: String,  //label url
     pub band_genre_id: i32,
     pub release_date: String,
     pub package_info: Option<Vec<Package>>,
-    pub featured_track: FeaturedTrack,
+    pub featured_track: Option<FeaturedTrack>,
     pub band_location: Option<String>,
     track_count: Option<i32>,
     pub duration: Option<f32>,
     pub primary_image: PrimaryImage,
 }
-
 
 impl Clone for Results {
     fn clone(&self) -> Results {
