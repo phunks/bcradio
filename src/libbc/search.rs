@@ -88,12 +88,30 @@ pub async fn find_tracks(term: &str) -> Result<Vec<crate::models::shared_data_mo
     let tracks = http_adapter(urls, html_to_track)
         .await
         .context("failed to load Bandcamp search results")?;
+    // A track hit can open an album page containing many other playable songs.
+    // Only queue the tracks actually returned by the search, not album fillers.
+    let tracks = matching_search_tracks(tracks, &response.auto.results);
     tracing::debug!(
         term,
         playable_count = tracks.len(),
         "Bandcamp playable tracks"
     );
     Ok(tracks)
+}
+
+fn matching_search_tracks(
+    tracks: Vec<crate::models::shared_data_models::Track>,
+    results: &[SearchItem],
+) -> Vec<crate::models::shared_data_models::Track> {
+    tracks
+        .into_iter()
+        .filter(|track| {
+            results.iter().any(|hit| {
+                hit.band_id == track.band_id
+                    && hit.name.trim().to_lowercase() == track.track.trim().to_lowercase()
+            })
+        })
+        .collect()
 }
 
 // Fetch every result returned by the autocomplete API, not just its first five.
@@ -122,8 +140,9 @@ fn search_item_url(item: &SearchItem) -> Option<String> {
 
 #[cfg(test)]
 mod ai_search_tests {
-    use super::{ai_search_urls, search_item_url};
+    use super::{ai_search_urls, matching_search_tracks, search_item_url};
     use crate::models::search_models::SearchItem;
+    use crate::models::shared_data_models::Track;
 
     fn item(root: &str, path: &str) -> SearchItem {
         serde_json::from_value(serde_json::json!({
@@ -131,6 +150,31 @@ mod ai_search_tests {
             "item_url_root": root, "item_url_path": path
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn only_keeps_tracks_named_in_search_hits_not_other_album_tracks() {
+        let hit: SearchItem = serde_json::from_value(serde_json::json!({
+            "type": "t", "id": 1, "name": "Night Lights", "band_id": 42
+        }))
+        .unwrap();
+        let make = |band_id, title: &str| Track {
+            band_id,
+            track: title.into(),
+            url: format!("https://example.com/{band_id}/{title}"),
+            ..Default::default()
+        };
+        let matches = matching_search_tracks(
+            vec![
+                make(42, "night lights"),
+                make(42, "Unrelated album track"),
+                make(99, "Night Lights"),
+            ],
+            &[hit],
+        );
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].band_id, 42);
+        assert_eq!(matches[0].track, "night lights");
     }
 
     #[test]

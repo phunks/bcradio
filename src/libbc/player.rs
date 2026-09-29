@@ -128,7 +128,7 @@ impl Player<'static> for SharedState {
                         playlist(&state)?
                     }
                     Command::History => history(&state)?,
-                    Command::FavoriteSearch => state.search(None).await?,
+                    Command::FavoriteSearch => favorite_search(&state).await?,
                     Command::Search => search(&state).await?,
                     Command::AiPlaylist => {
                         ai_playlist(&state, true).await?;
@@ -379,6 +379,13 @@ async fn search(state: &SharedState) -> Result<()> {
         state.search(search_str).await?;
     }
     Ok(())
+}
+
+async fn favorite_search(state: &SharedState) -> Result<()> {
+    let _screen = state.input_gate.resume_after_screen();
+    let _dest = Dest();
+    disable_tick_on_screen();
+    state.search(None).await
 }
 
 pub(crate) async fn ai_playlist(state: &SharedState, during_playback: bool) -> Result<bool> {

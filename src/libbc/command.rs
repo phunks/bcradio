@@ -26,6 +26,7 @@ impl Command {
                 | Self::Menu
                 | Self::Playlist
                 | Self::History
+                | Self::FavoriteSearch
                 | Self::Search
                 | Self::AiPlaylist
                 | Self::Help
@@ -87,6 +88,8 @@ mod tests {
         );
         assert!(Command::AiPlaylist.opens_screen());
         assert!(Command::History.opens_screen());
+        assert!(Command::FavoriteSearch.opens_screen());
+        assert!(Command::Search.opens_screen());
         assert_eq!(
             from_event(key(KeyCode::Char('H'), KeyModifiers::SHIFT)),
             Some(Command::History)

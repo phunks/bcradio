@@ -105,8 +105,13 @@ pub fn disable_tick() {
 pub fn enable_tick_on_screen() {
     if let Ok(a) = PROGRESS_BAR.lock() {
         if let Some(b) = a.deref() {
-            b.set_draw_target(ProgressDrawTarget::stdout());
-            b.tick();
+            // Resetting a visible draw target loses indicatif's tracked row count.
+            // AI generation restores the bar before the request and again on exit;
+            // the second reset would leave the previous bar on the terminal.
+            if b.is_hidden() {
+                b.set_draw_target(ProgressDrawTarget::stdout());
+                b.tick();
+            }
         }
     }
 }

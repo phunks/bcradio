@@ -14,7 +14,7 @@ use crate::libbc::args::AiConfigCommand;
 use crate::libbc::search::find_tracks;
 use crate::models::shared_data_models::Track;
 
-const PLAYLIST_PROMPT: &str = "Suggest Bandcamp music matching the user's description. Return ONLY a JSON array of 6 to 8 distinct specific Bandcamp search terms in listening order, preferably artist and track names. Use different artists where possible. Avoid the previously used search terms and recently played songs supplied with the description. For non-English requests, use searchable artist names or genre terms in English where appropriate. Do not invent stream URLs. No markdown or explanatory text.";
+const PLAYLIST_PROMPT: &str = "Suggest Bandcamp music matching the user's description. Strictly preserve the requested genre and mood: do not suggest artists or tracks from other genres just because their names or titles match the description (for example, a jazz request must not include hip-hop). Return ONLY a JSON array of 6 to 8 distinct specific Bandcamp search terms in listening order, preferably artist and track names. Use different artists where possible. Avoid the previously used search terms and recently played songs supplied with the description. For non-English requests, use searchable artist names or genre terms in English where appropriate. Do not invent stream URLs. No markdown or explanatory text.";
 
 const MAX_TRACKS_PER_TERM: usize = 3;
 const MAX_PLAYLIST_TRACKS: usize = 15;
@@ -98,27 +98,38 @@ fn shuffled_unique_matches(results: Vec<Track>) -> Vec<Track> {
     results
 }
 
-/// Try the full AI suggestion first; broaden only when it yields no playable songs.
-/// Keep at least two words so a single common first name cannot dominate results.
+/// Broaden an empty artist/track query, but only accept broadened results whose
+/// artist matches the remaining prefix. Otherwise dropping the last word could
+/// discard the requested genre and admit an unrelated song.
 async fn search_with_fallback<F, Fut>(term: &str, mut search: F) -> Result<Vec<Track>>
 where
     F: FnMut(String) -> Fut,
     Fut: Future<Output = Result<Vec<Track>>>,
 {
     let words: Vec<&str> = term.split_whitespace().collect();
-    let mut query = term.to_owned();
-    for fallback in 0..=MAX_SEARCH_FALLBACKS {
-        let results = search(query.clone()).await?;
-        if !results.is_empty() {
-            return Ok(results);
-        }
-        if fallback == MAX_SEARCH_FALLBACKS || words.len() <= fallback + 2 {
-            break;
-        }
-        query = words[..words.len() - fallback - 1].join(" ");
+    let results = search(term.to_owned()).await?;
+    if !results.is_empty() {
+        return Ok(results);
+    }
+    for removed in 1..=MAX_SEARCH_FALLBACKS.min(words.len().saturating_sub(2)) {
+        let query = words[..words.len() - removed].join(" ");
         tracing::debug!(original_term = term, fallback_term = %query, "Bandcamp search retrying with a broader term");
+        let matches: Vec<_> = search(query.clone())
+            .await?
+            .into_iter()
+            .filter(|track| artist_matches_prefix(&track.artist_name, &query))
+            .collect();
+        if !matches.is_empty() {
+            return Ok(matches);
+        }
     }
     Ok(Vec::new())
+}
+
+fn artist_matches_prefix(artist: &str, prefix: &str) -> bool {
+    let artist = normalize_track_text(artist);
+    let prefix = normalize_track_text(prefix);
+    !prefix.is_empty() && (artist == prefix || artist.starts_with(&format!("{prefix} ")))
 }
 
 fn add_matches(
@@ -391,15 +402,71 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[tokio::test]
-    async fn broadens_empty_artist_track_search_to_artist() {
+    async fn genre_query_does_not_accept_unrelated_fallback_results() {
         let queries = Arc::new(Mutex::new(Vec::new()));
         let seen = queries.clone();
-        let tracks = search_with_fallback("Gerry Mulligan Night Lights", move |query| {
+        let tracks = search_with_fallback("nightclub jazz", move |query| {
             seen.lock().unwrap().push(query.clone());
+            async move { Ok(vec![]) }
+        })
+        .await
+        .unwrap();
+        assert!(tracks.is_empty());
+        assert_eq!(*queries.lock().unwrap(), ["nightclub jazz"]);
+    }
+
+    #[tokio::test]
+    async fn missing_track_falls_back_to_matching_artist_only() {
+        let mut queries = Vec::new();
+        let tracks = search_with_fallback("Gerry Mulligan Night Lights", |query| {
+            queries.push(query.clone());
             async move {
                 if query == "Gerry Mulligan" {
+                    Ok(vec![
+                        Track {
+                            artist_name: "Snips".into(),
+                            track: "Cash Rules The High Ruler".into(),
+                            ..Default::default()
+                        },
+                        Track {
+                            artist_name: "Gerry Mulligan".into(),
+                            track: "Another Song".into(),
+                            ..Default::default()
+                        },
+                    ])
+                } else {
+                    Ok(vec![])
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            queries,
+            [
+                "Gerry Mulligan Night Lights",
+                "Gerry Mulligan Night",
+                "Gerry Mulligan"
+            ]
+        );
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].artist_name, "Gerry Mulligan");
+    }
+
+    #[tokio::test]
+    async fn unrelated_broadened_results_do_not_stop_artist_fallback() {
+        let mut queries = Vec::new();
+        let tracks = search_with_fallback("Gerry Mulligan Night Lights", |query| {
+            queries.push(query.clone());
+            async move {
+                if query == "Gerry Mulligan Night" {
                     Ok(vec![Track {
-                        track: "found".into(),
+                        artist_name: "Snips".into(),
+                        ..Default::default()
+                    }])
+                } else if query == "Gerry Mulligan" {
+                    Ok(vec![Track {
+                        artist_name: "Gerry Mulligan".into(),
                         ..Default::default()
                     }])
                 } else {
@@ -409,30 +476,9 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(tracks[0].track, "found");
-        assert_eq!(
-            *queries.lock().unwrap(),
-            [
-                "Gerry Mulligan Night Lights",
-                "Gerry Mulligan Night",
-                "Gerry Mulligan"
-            ]
-        );
-    }
-
-    #[tokio::test]
-    async fn paul_desmond_fallback_never_searches_paul_alone() {
-        let mut queries = Vec::new();
-        search_with_fallback("Paul Desmond Take Ten", |query| {
-            queries.push(query);
-            async { Ok(vec![]) }
-        })
-        .await
-        .unwrap();
-        assert_eq!(
-            queries,
-            ["Paul Desmond Take Ten", "Paul Desmond Take", "Paul Desmond"]
-        );
+        assert_eq!(queries.len(), 3);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].artist_name, "Gerry Mulligan");
     }
 
     #[test]
@@ -536,15 +582,6 @@ mod tests {
         assert!(result.is_empty());
         assert_eq!(queries.len(), MAX_SEARCH_FALLBACKS + 1);
         assert_eq!(queries.last().unwrap(), "one two three four");
-
-        let mut queries = Vec::new();
-        search_with_fallback("Gerry Mulligan", |query| {
-            queries.push(query);
-            async { Ok(vec![]) }
-        })
-        .await
-        .unwrap();
-        assert_eq!(queries, ["Gerry Mulligan"]);
     }
 
     fn config(url: &str) -> AiConfig {
