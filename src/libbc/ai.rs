@@ -182,7 +182,7 @@ pub struct AiConfig {
 }
 
 impl AiConfig {
-    fn validate(&self) -> Result<Url> {
+    pub(crate) fn validate(&self) -> Result<Url> {
         let url = Url::parse(&self.url).context("invalid AI API base URL")?;
         if url.host_str().is_none()
             || url.username() != ""
@@ -207,7 +207,7 @@ impl AiConfig {
     }
 }
 
-fn config_path() -> Result<PathBuf> {
+pub(crate) fn config_path() -> Result<PathBuf> {
     #[cfg(target_os = "macos")]
     let base = PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?)
         .join("Library/Application Support");
@@ -223,6 +223,7 @@ fn config_path() -> Result<PathBuf> {
     Ok(base.join("bcradio").join("ai.json"))
 }
 
+#[cfg(test)]
 fn read_at(path: &Path) -> Result<Option<AiConfig>> {
     let contents = match fs::read(path) {
         Ok(contents) => contents,
@@ -234,12 +235,7 @@ fn read_at(path: &Path) -> Result<Option<AiConfig>> {
     Ok(Some(config))
 }
 
-pub fn load_config() -> Result<Option<AiConfig>> {
-    read_at(&config_path()?)
-}
-
-fn write_at(path: &Path, config: &AiConfig) -> Result<()> {
-    config.validate()?;
+pub(crate) fn write_at(path: &Path, config: &impl Serialize) -> Result<()> {
     let parent = path.parent().context("invalid AI config path")?;
     fs::create_dir_all(parent)?;
     let contents = serde_json::to_vec_pretty(config)?;
@@ -276,21 +272,7 @@ fn write_at(path: &Path, config: &AiConfig) -> Result<()> {
 }
 
 pub fn run_config(action: &AiConfigCommand) -> Result<()> {
-    match action {
-        AiConfigCommand::Set { url, model } => {
-            let config = AiConfig {
-                url: url.clone(),
-                model: model.clone(),
-            };
-            write_at(&config_path()?, &config)?;
-            println!("AI API configuration saved (API key remains in the OS credential store).");
-        }
-        AiConfigCommand::Show => match load_config()? {
-            Some(config) => println!("URL: {}\nModel: {}", config.url, config.model),
-            None => println!("AI API is not configured."),
-        },
-    }
-    Ok(())
+    crate::libbc::ai_profiles::run(action)
 }
 
 #[derive(Debug, Serialize)]
@@ -324,9 +306,12 @@ struct ChatMessage {
 /// prompts, response body or authorization header.
 #[allow(dead_code)]
 pub async fn complete(system: &str, user: &str) -> Result<String> {
-    let config = load_config()?.context("configure AI with `bcradio ai-config set` first")?;
-    let key = ai_key::load()?.context("set AI API key with `bcradio ai-key set` first")?;
-    complete_with(&config, &key, system, user).await
+    // Read the profile once so the endpoint and credential belong to the same snapshot.
+    let profiles = crate::libbc::ai_profiles::load()?;
+    let profile = profiles.selected(None)?;
+    let key = ai_key::load_for(&profile.name)?
+        .context("set AI API key with `bcradio ai-key set` first")?;
+    complete_with(&profile.config, &key, system, user).await
 }
 
 async fn complete_with(config: &AiConfig, key: &str, system: &str, user: &str) -> Result<String> {

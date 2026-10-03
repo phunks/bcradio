@@ -16,19 +16,25 @@ mod libbc;
 mod logger;
 mod models;
 
-const LOGO: &str = r#"
+const LOGO: &str = concat!(
+    r#"
 ▄▄▄▄·  ▄▄· ▄▄▄   ▄▄▄· ·▄▄▄▄  ▪
 ▐█ ▀█▪▐█ ▌▪▀▄ █·▐█ ▀█ ██▪ ██ ██ ▪
 ▐█▀▀█▄██ ▄▄▐▀▀▄ ▄█▀▀█ ▐█· ▐█▌▐█· ▄█▀▄
 ██▄▪▐█▐███▌▐█•█▌▐█ ▪▐▌██. ██ ▐█▌▐█▌.▐▌
 ·▀▀▀▀ ·▀▀▀ .▀  ▀ ▀  ▀ ▀▀▀▀▀• ▀▀▀ ▀█▄▀▪
-"#;
+v"#,
+    env!("CARGO_PKG_VERSION"),
+    "\n"
+);
 
 #[tokio::main]
 async fn main() -> Result<()> {
     init_args();
     match args_command() {
-        Some(ConfigCommand::AiKey { action }) => return libbc::ai_key::run(*action),
+        Some(ConfigCommand::AiKey { action, profile }) => {
+            return libbc::ai_key::run(*action, profile.as_deref())
+        }
         Some(ConfigCommand::AiConfig { action }) => return libbc::ai::run_config(action),
         None => {}
     }

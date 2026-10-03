@@ -26,6 +26,7 @@ Options:
  h                    help
  H                    playback history
  I                    generate AI playlist from a description
+ O                    options / AI connection profiles
  i                    play info
  s                    free word search
  f                    favorite search
@@ -39,7 +40,6 @@ Options:
 ```
 
 ## Proxy configuration
-
 All HTTP requests (Bandcamp and AI) use reqwest's default proxy settings:
 `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` (or their lowercase variants).
 Use `NO_PROXY` (or `no_proxy`) to bypass the proxy for specific hosts, such as
@@ -84,19 +84,126 @@ API key from the OS credential store. The non-secret URL and model are saved
 to `~/Library/Application Support/bcradio/ai.json` on macOS,
 `${XDG_CONFIG_HOME:-~/.config}/bcradio/ai.json` on Linux, or
 `%APPDATA%\bcradio\ai.json` on Windows. No configuration directory is created
-until `ai-config set` is used. HTTP is also supported for LiteLLM on another
-host; over HTTP, requests and the API key are transmitted without encryption.
+until a profile is saved with `ai-config set` or the `O` options screen.
+HTTP is also supported for LiteLLM on another host; over HTTP, requests and
+the API key are transmitted without encryption.
+
+### Multiple AI connection profiles
+
+![bcradio_option.png](.github/images/bcradio_option.png)
+
+Save a separate URL, model, and secure API key for each provider or model:
+
+```sh
+bcradio ai-config set --profile openai --url https://api.openai.com/v1 --model YOUR_MODEL
+bcradio ai-key set --profile openai
+bcradio ai-config set --profile litellm --url http://litellm.internal:4000/v1 --model YOUR_MODEL
+bcradio ai-key set --profile litellm
+bcradio ai-config list
+bcradio ai-config use litellm
+bcradio ai-config show
+bcradio ai-key status --profile litellm
+bcradio ai-key delete --profile litellm
+bcradio ai-config delete litellm
+```
+
+Profile names contain 1–64 ASCII letters, digits, `.`, `_`, or `-` and are
+case-sensitive. The first saved profile becomes active; adding another does
+not switch it automatically. `ai-config set` / `show` and all `ai-key` commands
+without `--profile` target the active profile, or `default` before initial
+setup. The default key can still be registered before configuring its URL.
+Named keys require a saved profile. `ai-config delete` removes both the profile
+and its secure credential; deleting the active profile selects the first
+remaining profile (or leaves none active).
+
+During playback, press uppercase `O` to open the alternate-screen options view:
+
+| Key | Action |
+| --- | --- |
+| `j` / `k`, arrows | Select a profile |
+| Enter | Activate the selected profile |
+| `a` | Add a profile (name, URL, model) |
+| `e` | Edit the selected profile's URL and model |
+| `K` | Register or replace its API key with hidden input |
+| `S` | Check whether its API key is registered (never displays the key) |
+| `D` | Delete its API key, with confirmation |
+| `d` | Delete the profile and API key, with confirmation |
+| Esc | Cancel a prompt or return to playback |
+
+Switching applies to the next AI request, including automatic playlist
+refills. It does not interrupt the current song, change generated tracks,
+or modify a request already in progress. Add a profile first, then select it
+and press `K` to register its key. Audio continues while the options view is open.
+
+The AI description input screen (`I`, or AI input from the menu) shows only
+the active profile name in its prompt, for example:
+
+```text
+? describe an AI playlist to gpt-6.1 (Enter: generate, Esc: cancel)
+```
+
+Here `gpt-6.1` is the profile name, not necessarily the configured model name.
+The profile name is not included in your description. URL, model, and API key
+are not displayed in this input screen. If no profile is configured, the
+prompt shows `not configured`; a settings read error shows `configuration unavailable`.
+
+#### API keys when editing a model or URL
+
+API keys belong to **profile names**, not model names. Editing a profile with
+`e` (or updating it with `ai-config set`) keeps its existing API key. If you
+change only the model and the same key can access that model, no key selection
+or re-registration is needed.
+
+If the new model requires a different key:
+
+- To replace the key, select that profile and press `K`, or run
+  `bcradio ai-key set --profile PROFILE_NAME`. This overwrites its previous key.
+- To keep both model/key combinations, press `a` to create a separate profile,
+  then select it and press `K` to register its key. Use Enter to activate the
+  desired profile, for example:
+
+  ```text
+  litellm-model-a → model-A + API key A
+  litellm-model-b → model-B + API key B
+  ```
+
+**Changing the URL also keeps the existing API key.** When moving to another
+provider, create a separate profile or replace the key with `K` before making
+an AI request, so the previous provider's key is not sent to the new endpoint.
+
+Existing single-provider `ai.json` settings are read as the `default` profile,
+and its existing keychain credential is reused without copying the key.
+The configuration is converted to the profiles format on the next save;
+merely reading settings does not create or rewrite files. Profile metadata
+and the active selection are saved in the same `ai.json`; each profile's API
+key stays exclusively in the OS credential store.
 
 ### AI usage cost (example)
 
-One observed AI playlist request using `openai/gpt-6-sol`:
+The results below compare both models under the same conditions, using the
+playlist description `しっとりjazz` (mellow jazz). Try different AI models and
+find your favorite!
+
+`openai/gpt-6.1-sol`:
 
 | Metric | Value |
 | --- |------------------------------------------------:|
-| Tokens | 714 (116 prompt tokens + 598 completion tokens) |
-| Reasoning tokens | 531 |
-| Cost | $0.00621200 |
-| AI API response time | 14.217 s |
+| Tokens | 749 (167 prompt tokens + 582 completion tokens) |
+| Reasoning tokens | 366 |
+| Cost | $0.00477400 |
+| AI API response time | 22.020 s |
+
+
+`claude-opus-5-5`:
+
+| Metric | Value |
+| --- |------------------------------------------------:|
+| Tokens | 999 (243 prompt tokens + 756 completion tokens) |
+| Reasoning tokens | 617 |
+| Cost | $0.01609200 |
+| AI API response time | 13.084 s |
+
+
 
 In other observed requests, AI responses took roughly 14 to 22 seconds.
 
@@ -118,7 +225,7 @@ Genre and mood are best-effort: bcradio does not analyze the audio, so a jazz
 playlist may occasionally include a track that sounds more like hip-hop or
 dance music.
 Including the subsequent Bandcamp searches, creating a playlist typically
-takes around 30 seconds; this can vary with AI response time and Bandcamp load.
+takes around 30 - 90 seconds; this can vary with AI response time and Bandcamp load.
 When fewer than 2 tracks remain queued in an AI playlist, bcradio requests
 more suggestions automatically; each additional AI request may incur a charge.
 
@@ -128,7 +235,7 @@ check your provider's pricing and usage for current charges.
 
 If you find a song you love, please support the artist on Bandcamp!
 
-### ⚠ About building and running on Linux
+## ⚠ About building and running on Linux
 
 This program uses [rustaudio/cpal](https://github.com/rustaudio/cpal) lib to play audio, which requires ALSA development files on Linux.
 
@@ -140,7 +247,7 @@ In order to build and run this program on Linux, you need to install：
 
 If AAAA records are returned slowly in the information screen, add "options single-request-reopen" to resolve.conf. It is not my fault.
 
-### ⚠ About running on Windows
+## ⚠ About running on Windows
 
 The program can also play audio using the [ASIO4ALL](https://asio4all.org) driver instead of WASAPI.
 

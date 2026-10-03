@@ -1,11 +1,13 @@
 pub mod ai;
 pub mod ai_key;
+pub mod ai_profiles;
 pub mod args;
 pub mod command;
 pub mod http_adapter;
 pub mod http_client;
 pub mod input_gate;
 mod macros;
+pub mod options;
 pub mod player;
 pub mod playlist;
 pub mod progress_bar;

@@ -144,6 +144,42 @@ mod ai_search_tests {
     use crate::models::search_models::SearchItem;
     use crate::models::shared_data_models::Track;
 
+    #[test]
+    fn ai_input_shows_profile_in_title_without_changing_prompt() {
+        use ratatui::{backend::TestBackend, Terminal};
+        use tui_textarea::TextArea;
+
+        let mut textarea = TextArea::from(["relaxing jazz"]);
+        let mut profiles = crate::libbc::ai_profiles::Profiles::default();
+        profiles
+            .set(
+                "gpt-6.1",
+                crate::libbc::ai::AiConfig {
+                    url: "https://example.com/v1".into(),
+                    model: "hidden-model".into(),
+                },
+            )
+            .unwrap();
+        let title = profiles.input_title();
+        textarea.set_block(ratatui::widgets::Block::default().title(title.as_str()));
+        let mut term = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        term.draw(|f| f.render_widget(&textarea, f.area())).unwrap();
+        let text = format!("{:?}", term.backend().buffer());
+        for expected in [
+            "? describe an AI playlist to gpt-6.1 (Enter: generate, Esc: cancel)",
+            "relaxing jazz",
+        ] {
+            assert!(text.contains(expected), "missing {expected}");
+        }
+        assert_eq!(textarea.lines(), &["relaxing jazz"]);
+        assert!(!text.contains("hidden-model"));
+        assert!(!text.contains("https://example.com"));
+        for (width, height) in [(1, 1), (20, 4)] {
+            let mut term = Terminal::new(TestBackend::new(width, height)).unwrap();
+            term.draw(|f| f.render_widget(&textarea, f.area())).unwrap();
+        }
+    }
+
     fn item(root: &str, path: &str) -> SearchItem {
         serde_json::from_value(serde_json::json!({
             "type": "t", "id": 1, "name": "song", "band_id": 2,

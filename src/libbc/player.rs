@@ -134,6 +134,7 @@ impl Player<'static> for SharedState {
                         ai_playlist(&state, true).await?;
                     }
                     Command::Help => help(&state)?,
+                    Command::Options => options(&state)?,
                     Command::Quit => {
                         let _quit_display = QuitDisplay::new();
                         if wait_for_quit_or_cancel(&sink, &commands).await {
@@ -395,9 +396,14 @@ pub(crate) async fn ai_playlist(state: &SharedState, during_playback: bool) -> R
     }
     // Restore the progress bar even if opening or reading the editor fails.
     let _dest = during_playback.then_some(Dest());
-    let Some(description) =
-        input_panel("? describe an AI playlist (Enter: generate, Esc: cancel)")?
-    else {
+    let title = match crate::libbc::ai_profiles::load() {
+        Ok(profiles) => profiles.input_title(),
+        Err(_) => {
+            "? describe an AI playlist (configuration unavailable; Enter: generate, Esc: cancel)"
+                .into()
+        }
+    };
+    let Some(description) = input_panel(&title)? else {
         return Ok(false);
     };
     if during_playback {
@@ -422,6 +428,27 @@ pub(crate) async fn ai_playlist(state: &SharedState, during_playback: bool) -> R
             crate::libbc::terminal::print_error(format!("{e:#}"));
             Ok(false)
         }
+    }
+}
+
+fn options(state: &SharedState) -> Result<()> {
+    let _screen = state.input_gate.resume_after_screen();
+    let _dest = Dest();
+    disable_tick_on_screen();
+    match crate::libbc::options::show() {
+        Err(e)
+            if matches!(
+                e.downcast_ref::<inquire::InquireError>(),
+                Some(inquire::InquireError::OperationInterrupted)
+            ) =>
+        {
+            Err(e)
+        }
+        Err(e) => {
+            crate::libbc::terminal::print_error(format!("{e:#}"));
+            Ok(())
+        }
+        Ok(()) => Ok(()),
     }
 }
 

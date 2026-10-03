@@ -12,6 +12,7 @@ pub enum Command {
     FavoriteSearch,
     Search,
     AiPlaylist,
+    Options,
     Help,
     Quit,
     CancelQuit,
@@ -29,6 +30,7 @@ impl Command {
                 | Self::FavoriteSearch
                 | Self::Search
                 | Self::AiPlaylist
+                | Self::Options
                 | Self::Help
         )
     }
@@ -55,6 +57,7 @@ pub fn from_event(event: Event) -> Option<Command> {
         KeyCode::Char('f') => Some(Command::FavoriteSearch),
         KeyCode::Char('s') => Some(Command::Search),
         KeyCode::Char('I') => Some(Command::AiPlaylist),
+        KeyCode::Char('O') => Some(Command::Options),
         KeyCode::Char('H') => Some(Command::History),
         KeyCode::Char('h') => Some(Command::Help),
         KeyCode::Char('Q') => Some(Command::Quit),
@@ -87,6 +90,11 @@ mod tests {
             Some(Command::AiPlaylist)
         );
         assert!(Command::AiPlaylist.opens_screen());
+        assert!(Command::Options.opens_screen());
+        assert_eq!(
+            from_event(key(KeyCode::Char('O'), KeyModifiers::SHIFT)),
+            Some(Command::Options)
+        );
         assert!(Command::History.opens_screen());
         assert!(Command::FavoriteSearch.opens_screen());
         assert!(Command::Search.opens_screen());

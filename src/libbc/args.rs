@@ -16,6 +16,9 @@ pub enum AiKeyCommand {
 pub enum ConfigCommand {
     /// Manage the AI API key in the OS credential store
     AiKey {
+        /// Profile name (defaults to the active profile, or default before setup)
+        #[arg(long, global = true)]
+        profile: Option<String>,
         #[command(subcommand)]
         action: AiKeyCommand,
     },
@@ -31,12 +34,23 @@ pub enum AiConfigCommand {
     /// Save the API base URL and model (never the API key)
     Set {
         #[arg(long)]
+        profile: Option<String>,
+        #[arg(long)]
         url: String,
         #[arg(long)]
         model: String,
     },
     /// Display the configured API base URL and model
-    Show,
+    Show {
+        #[arg(long)]
+        profile: Option<String>,
+    },
+    /// List saved profiles and mark the active one
+    List,
+    /// Select the profile used by subsequent AI requests
+    Use { profile: String },
+    /// Delete a profile and its credential
+    Delete { profile: String },
 }
 
 const ABOUT: &str = "
@@ -47,6 +61,7 @@ A command line music player for https://bandcamp.com
  h                    help
  H                    playback history
  I                    generate AI playlist from a description
+ O                    options / AI connection profiles
  i                    play info
  s                    free word search
  f                    favorite search
@@ -132,7 +147,10 @@ mod ai_key_tests {
             let args = Args::try_parse_from(["bcradio", "ai-key", action]).unwrap();
             assert_eq!(
                 args.command,
-                Some(ConfigCommand::AiKey { action: expected })
+                Some(ConfigCommand::AiKey {
+                    profile: None,
+                    action: expected
+                })
             );
         }
         assert!(Args::try_parse_from(["bcradio", "ai-key", "set", "secret"]).is_err());
@@ -155,6 +173,7 @@ mod ai_key_tests {
             args.command,
             Some(ConfigCommand::AiConfig {
                 action: AiConfigCommand::Set {
+                    profile: None,
                     url: "https://example.com/v1".into(),
                     model: "test".into(),
                 }
@@ -168,6 +187,75 @@ mod ai_key_tests {
             "https://example.com/v1"
         ])
         .is_err());
+    }
+
+    #[test]
+    fn parses_named_profiles_and_switch_commands() {
+        for argv in [
+            vec!["bcradio", "ai-key", "status", "--profile", "local"],
+            vec!["bcradio", "ai-key", "--profile", "local", "status"],
+        ] {
+            assert_eq!(
+                Args::try_parse_from(argv).unwrap().command,
+                Some(ConfigCommand::AiKey {
+                    profile: Some("local".into()),
+                    action: AiKeyCommand::Status,
+                })
+            );
+        }
+        for (argv, action) in [
+            (vec!["bcradio", "ai-config", "list"], AiConfigCommand::List),
+            (
+                vec!["bcradio", "ai-config", "use", "local"],
+                AiConfigCommand::Use {
+                    profile: "local".into(),
+                },
+            ),
+            (
+                vec!["bcradio", "ai-config", "delete", "local"],
+                AiConfigCommand::Delete {
+                    profile: "local".into(),
+                },
+            ),
+            (
+                vec!["bcradio", "ai-config", "show", "--profile", "local"],
+                AiConfigCommand::Show {
+                    profile: Some("local".into()),
+                },
+            ),
+            (
+                vec!["bcradio", "ai-config", "show"],
+                AiConfigCommand::Show { profile: None },
+            ),
+            (
+                vec![
+                    "bcradio",
+                    "ai-config",
+                    "set",
+                    "--profile",
+                    "local",
+                    "--url",
+                    "http://localhost:4000/v1",
+                    "--model",
+                    "test",
+                ],
+                AiConfigCommand::Set {
+                    profile: Some("local".into()),
+                    url: "http://localhost:4000/v1".into(),
+                    model: "test".into(),
+                },
+            ),
+        ] {
+            assert_eq!(
+                Args::try_parse_from(argv).unwrap().command,
+                Some(ConfigCommand::AiConfig { action })
+            );
+        }
+        assert!(
+            Args::try_parse_from(["bcradio", "ai-key", "set", "--profile", "local", "secret"])
+                .is_err()
+        );
+        assert!(Args::try_parse_from(["bcradio", "ai-config", "use"]).is_err());
     }
 
     #[test]
