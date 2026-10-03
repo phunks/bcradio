@@ -17,6 +17,11 @@ pub struct Track {
     pub duration: f32,
     pub track: String,
     pub buffer: Vec<u8>,
+    /// Only AI-generated queue entries are subject to recent-history exclusion.
+    #[serde(skip)]
+    pub ai_generated: bool,
+    #[serde(skip)]
+    pub end_marker: Option<crate::libbc::trailing_silence::EndMarker>,
     pub results: ResultsJson,
     pub genre: Option<String>,
     pub subgenre: Option<String>,
@@ -33,6 +38,8 @@ impl Clone for Track {
             duration: self.duration,
             track: self.track.clone(),
             buffer: self.buffer.clone(),
+            ai_generated: self.ai_generated,
+            end_marker: self.end_marker,
             results: self.results.clone(),
             genre: self.genre.clone(),
             subgenre: self.subgenre.clone(),

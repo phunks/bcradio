@@ -15,8 +15,10 @@ Commands:
   help       Print this message or the help of the given subcommand(s)
 
 Options:
-  -v, --verbose... verbose log. check `$env:TEMP`
-      --no-ssl-verify  disable SSL verification
+  -v, --verbose... verbose log
+  -n, --no-ssl-verify  disable SSL verification for Bandcamp requests
+      --no-trim-leading-silence   preserve leading PCM silence
+      --no-trim-trailing-silence  disable downloaded-buffer trailing PCM silence analysis/trimming
   -i, --img-width <IMG_WIDTH>  image size [default: 30]
   -h, --help       Print help
   -V, --version    Print version
@@ -39,6 +41,11 @@ Options:
  Ctrl+C               exit immediately
 ```
 
+Logs are written as daily JSON files named `debug_bcradio.log.YYYY-MM-DD` in
+the OS temporary directory (`$env:TEMP` on Windows). Use `-v`, `-vv`, or `-vvv`
+for increasing verbosity; `RUST_LOG` overrides the default log filter.
+`--no-ssl-verify` does not disable certificate verification for the AI API.
+
 ## Proxy configuration
 All HTTP requests (Bandcamp and AI) use reqwest's default proxy settings:
 `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` (or their lowercase variants).
@@ -46,10 +53,12 @@ Use `NO_PROXY` (or `no_proxy`) to bypass the proxy for specific hosts, such as
 a LiteLLM instance on the local network. Match the hostname used in the AI URL:
 
 ```
-export ALL_PROXY=[socks5h|http(s)]://proxy.internal:1080
+export ALL_PROXY=socks5h://proxy.internal:1080
 export NO_PROXY=litellm.internal,localhost,127.0.0.1
 bcradio
 ```
+
+Use an `http://` or `https://` URL instead for an HTTP proxy.
 
 The former `--proxy` option is no longer supported.
 
@@ -135,8 +144,48 @@ refills. It does not interrupt the current song, change generated tracks,
 or modify a request already in progress. Add a profile first, then select it
 and press `K` to register its key. Audio continues while the options view is open.
 
-The AI description input screen (`I`, or AI input from the menu) shows only
-the active profile name in its prompt, for example:
+### Leading silence trimming
+
+Leading silence is trimmed by default from decoded PCM, independently of MP3
+gapless metadata. Start with `bcradio --no-trim-leading-silence` to disable it.
+This setting is controlled only by startup arguments, not the `O` AI profiles
+screen, and is not saved across restarts.
+
+The detector removes only leading complete channel frames with amplitudes at
+or below −80 dBFS, scanning at most 10 seconds. The first audible frame, silence
+within the song, and trailing silence are preserved. Very quiet intros can still
+be affected; disable trimming when preserving the original start is important.
+Playback progress uses the PCM duration when known, falling back to the original
+MP3 duration, minus the detected leading trim and any trailing cut;
+track information and history retain the original duration. The detector is a
+separate `Source` adapter: it requires neither seeking nor a complete-track PCM
+buffer, but scans the prefix before playback begins.
+
+### Trailing silence trimming (downloaded buffers)
+
+Trailing trimming is also enabled by default. Use
+`bcradio --no-trim-trailing-silence` to disable it independently of leading
+trimming. Both trimming settings are controlled only by startup arguments and
+remain unchanged during playback; they are not saved across restarts. To disable
+both, start with
+`bcradio --no-trim-leading-silence --no-trim-trailing-silence`.
+
+After download, a background worker seeks near the end and decodes the tail
+to PCM. It searches 3, 6, then at most 10 seconds back, using −80 dBFS and keeping
+100 ms after the last sound. A single background preparation job owns the
+unchanged MP3 buffer and prepares its decoder. Playback stops at the PCM marker before applying leading
+trimming, so progress accounts for both cuts while metadata retains the original
+duration. MP3 accurate seeking may scan compressed frame headers from the start;
+it does not decode the whole song to PCM. Analysis adds startup work for the first
+song and can run during playback for the next song. Fractional PCM durations are
+read directly from Symphonia to avoid rodio 0.18.1's fractional-second conversion
+bug when calculating markers and progress.
+
+Unknown duration, failed seeks, PCM timeline mismatches, or no audible boundary
+within the search limit leave the tail untouched. Entirely silent short tracks
+are not given end markers. This analysis requires a downloaded, seekable buffer;
+the separate end-marker playback adapter does not seek, but an unseekable live
+stream would require a different tail detector.
 
 ```text
 ? describe an AI playlist to gpt-6.1 (Enter: generate, Esc: cancel)
@@ -221,7 +270,8 @@ If an exact artist-and-track search finds nothing, bcradio retries with a
 shorter search term (such as `Portico Quartet Ruins` → `Portico Quartet`).
 Tracks found through this fallback are only used if the artist matches the
 shorter term.
-Genre and mood are best-effort: bcradio does not analyze the audio, so a jazz
+Genre and mood are best-effort: bcradio does not classify the audio by genre or
+mood (PCM analysis is only used for silence trimming), so a jazz
 playlist may occasionally include a track that sounds more like hip-hop or
 dance music.
 Including the subsequent Bandcamp searches, creating a playlist typically

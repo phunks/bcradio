@@ -1,7 +1,7 @@
 use crate::lazy_regex;
 use crate::libbc::http_adapter::{html_to_track, http_adapter};
 use crate::libbc::http_client::post_request;
-use crate::libbc::progress_bar::{disable_spinner, enable_spinner};
+use crate::libbc::progress_bar::{disable_spinner, disable_tick_on_screen, enable_spinner};
 use crate::libbc::scorer::score_sort;
 use crate::libbc::shared_data::SharedState;
 use crate::libbc::terminal::{clear_screen, draw, AlternateScreen};
@@ -296,6 +296,8 @@ impl Search for SharedState {
         if uniq.len() > 1 {
             let _input = self.input_gate.pause();
 
+            // Keep playback status visible during lookup; hide it only for the chooser.
+            disable_tick_on_screen();
             let _screen = AlternateScreen::enter(true)?;
             clear_screen();
             let stdout = io::stdout();

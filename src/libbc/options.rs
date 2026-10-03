@@ -101,8 +101,11 @@ fn render(f: &mut ratatui::Frame, profiles: &Profiles, selection: &mut ListState
             Constraint::Length(4),
         ])
         .split(f.area());
-    f.render_widget(Paragraph::new("j/k or arrows: select   Enter: activate   a: add   e: edit URL/model\nK: set key   S: key status   D: delete key   d: delete profile   Esc: close\nHTTP endpoints send the API key without encryption.")
-        .block(Block::default().title("Options — AI profiles").borders(Borders::BOTTOM)), chunks[0]);
+    f.render_widget(
+        Paragraph::new("j/k or arrows: select   Enter: activate   a: add   e: edit URL/model\nK: set key   S: key status   D: delete key   d: delete profile   Esc: close")
+            .block(Block::default().title("Options — AI profiles").borders(Borders::BOTTOM)),
+        chunks[0],
+    );
     let items: Vec<ListItem> = profiles
         .profiles
         .iter()
@@ -241,6 +244,16 @@ mod tests {
             .unwrap();
         let text = format!("{:?}", term.backend().buffer());
         assert!(text.contains("No profiles. Press a to add one."));
+        assert!(text.contains("Options — AI profiles"));
+        assert!(!text.contains("leading silence trim"));
+        assert!(!text.contains("trailing silence trim"));
+        let buffer = term.backend().buffer();
+        let key_row: String = (0..100).map(|x| buffer[(x, 2)].symbol()).collect();
+        assert!(key_row.contains("K: set key"));
+        assert!(key_row.contains("Esc: close"));
+        assert_eq!(buffer[(0, 3)].symbol(), "─");
+        assert_eq!(buffer[(99, 3)].symbol(), "─");
+        assert_eq!(buffer[(0, 4)].symbol(), "N");
         profiles
             .set(
                 "local",
@@ -255,6 +268,7 @@ mod tests {
         let text = format!("{:?}", term.backend().buffer());
         assert!(text.contains("* local"));
         assert!(text.contains("test-model"));
+        assert!(!text.contains("silence trim"));
         for (width, height) in [(1, 1), (20, 4), (80, 24)] {
             let mut term = Terminal::new(TestBackend::new(width, height)).unwrap();
             term.draw(|f| render(f, &profiles, &mut selection, "Ready"))

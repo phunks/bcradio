@@ -1,6 +1,6 @@
 [package]
 name = "bcradio"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2021"
 license = "MIT"
 description = "A command line music player for https://bandcamp.com, written in Rust."
@@ -15,6 +15,13 @@ debug = false
 strip = "symbols"
 lto = "fat"
 codegen-units = 1
+
+#[profile.release]
+#debug = true
+#strip = "none"
+#lto = "thin"
+#codegen-units = 1
+#split-debuginfo = "unpacked"
 
 [features]
 

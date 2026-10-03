@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::time::Duration;
 
 use anyhow::{Error, Result};
@@ -7,15 +8,19 @@ use crate::libbc::ai;
 use crate::libbc::args::{about, args_genre, args_list_devices, args_sub_genre};
 use crate::libbc::command::Command;
 use crate::libbc::http_client::get_request;
-use crate::libbc::playlist::{format, PlayList, Selection};
+use crate::libbc::playback_completion::NotifyOnEnd;
+use crate::libbc::playback_tasks::{ManagedTask, Preparation, PreparedAudio};
+use crate::libbc::playlist::{fetch_discover_page, format, PlayList, Selection};
 use crate::libbc::progress_bar::{
     disable_tick, disable_tick_on_screen, enable_tick, enable_tick_on_screen, run,
     set_quit_pending, update_song_info_on_screen,
 };
 use crate::libbc::search::{input_panel, Search};
 use crate::libbc::shared_data::SharedState;
-use crate::libbc::sink::{list_host_devices, Mp3, MusicStruct};
+use crate::libbc::sink::{list_host_devices, MusicStruct};
 use crate::libbc::terminal::{show_alt_term, show_alt_term2};
+use crate::models::bc_discover_index::PostData;
+use crate::models::bc_discover_json::DiscoverJsonRequest;
 use crate::models::bc_error::BcradioError;
 use crate::models::shared_data_models::ResultsJson;
 use crate::{ceil, format_duration};
@@ -49,12 +54,117 @@ fn map_volume_to_rodio_volume(volume: u8) -> f32 {
     (volume as f32 / 9_f32).powf(2.0)
 }
 
-// Check for a finished track periodically without waking the playback task 20 times a second.
-// Incoming commands still wake it immediately.
-async fn next_command(commands: &Receiver<Command>) -> Result<Option<Command>> {
-    match tokio::time::timeout(Duration::from_millis(250), commands.recv()).await {
-        Ok(command) => Ok(Some(command?)),
-        Err(_) => Ok(None),
+#[derive(Default)]
+struct PlaybackWork {
+    preparation: Option<Preparation>,
+    ready: Option<(String, PreparedAudio)>,
+    refill: Option<(PostData, ManagedTask<Result<DiscoverJsonRequest>>)>,
+    urgent: bool,
+    finished: Option<tokio::sync::oneshot::Receiver<()>>,
+    skipping: bool,
+}
+
+enum PlaybackEvent {
+    Command(Command),
+    Prepared(Result<PreparedAudio>),
+    Refilled(Result<DiscoverJsonRequest>),
+    Wake,
+    Finished,
+}
+
+async fn playback_finished(receiver: &mut Option<tokio::sync::oneshot::Receiver<()>>) {
+    match receiver {
+        Some(receiver) => {
+            let _ = receiver.await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
+async fn pending_task<T>(task: Option<&mut ManagedTask<Result<T>>>) -> Result<T> {
+    match task {
+        Some(task) => (&mut task.handle).await?,
+        None => std::future::pending().await,
+    }
+}
+
+impl PlaybackWork {
+    async fn next_event(
+        &mut self,
+        commands: &Receiver<Command>,
+        state: &SharedState,
+    ) -> Result<PlaybackEvent> {
+        tokio::select! {
+            biased;
+            command = commands.recv() => Ok(PlaybackEvent::Command(command?)),
+            _ = playback_finished(&mut self.finished) => Ok(PlaybackEvent::Finished),
+            result = pending_task(self.preparation.as_mut().map(|p| &mut p.task)) => Ok(PlaybackEvent::Prepared(result)),
+            result = pending_task(self.refill.as_mut().map(|(_, task)| task)) => Ok(PlaybackEvent::Refilled(result)),
+            _ = state.changed.notified() => Ok(PlaybackEvent::Wake),
+        }
+    }
+
+    fn sync_preparation(&mut self, state: &SharedState) {
+        let track = state.preparation_track();
+        let url = track.as_ref().map(|track| track.url.as_str());
+        if self
+            .preparation
+            .as_ref()
+            .is_some_and(|p| Some(p.url.as_str()) != url)
+        {
+            self.preparation = None;
+        }
+        if self
+            .ready
+            .as_ref()
+            .is_some_and(|(ready_url, _)| Some(ready_url.as_str()) != url)
+        {
+            self.ready = None;
+        }
+        if self.preparation.is_none() && self.ready.is_none() {
+            if let Some(track) = track {
+                let preparation = Preparation::start(track);
+                if self.urgent {
+                    preparation.task.skip_analysis();
+                }
+                self.preparation = Some(preparation);
+            }
+        }
+    }
+
+    fn next(&mut self, state: &SharedState, sink: &Sink) {
+        if self.finished.is_none() || self.skipping {
+            self.preparation = None;
+            self.ready = None;
+            state.skip_pending_track();
+        } else {
+            // Unlike stop(), skip_one() does not make the next append block
+            // waiting for a stopped queue to flush. Wait for source-drop instead.
+            sink.skip_one();
+            self.skipping = true;
+            if let Some(preparation) = &self.preparation {
+                preparation.task.skip_analysis();
+            }
+        }
+        self.urgent = true;
+    }
+
+    fn start_ready(&mut self, state: &SharedState, sink: &Sink) -> Result<()> {
+        if self.finished.is_none() {
+            if let Some((url, audio)) = self.ready.take() {
+                if state.activate_prepared_track(&url, audio.original_duration) {
+                    state.record_playback_start();
+                    let mut info = state.get_current_track_info();
+                    info.duration = audio.playback_duration.as_secs_f32();
+                    update_song_info_on_screen(&info)?;
+                    let (source, finished) = NotifyOnEnd::new(audio.source);
+                    self.finished = Some(finished);
+                    sink.append(source);
+                    self.urgent = false;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -92,25 +202,68 @@ impl Player<'static> for SharedState {
         let sink = Sink::try_new(&stream_handle.stream_handle)?;
         state.input_gate.activate_playback();
         let _progress_handle = AbortOnDrop(run().await);
+        let mut work = PlaybackWork::default();
 
         loop {
-            if sink.empty() || state.is_ai_playlist() {
+            if state.is_ai_playlist() {
+                // AI refill already claims and spawns a single background request.
                 state.fill_playlist().await?;
+            } else if state.queue_length_from_truck_list() < 2 && work.refill.is_none() {
+                let post = state.next_post();
+                if post.cursor.is_some() {
+                    let request = post.clone();
+                    let task = ManagedTask::new(
+                        tokio::spawn(async move { fetch_discover_page(&request).await }),
+                        Default::default(),
+                    );
+                    work.refill = Some((post, task));
+                } else if work.finished.is_none() && state.queue_length_from_truck_list() == 0 {
+                    // Modal selection intentionally owns input while the queue is empty.
+                    state.fill_playlist().await?;
+                }
             }
 
-            state.enqueue_truck_buffer().await?;
+            work.sync_preparation(&state);
+            work.start_ready(&state, &sink)?;
+            // Start the following download immediately after handing audio to Rodio.
+            work.sync_preparation(&state);
 
-            play(&state, &sink).await?;
-
-            // Wake immediately on a command, but continue advancing playback while idle.
-            if let Some(res) = next_command(&commands).await? {
-                match res {
+            match work.next_event(&commands, &state).await? {
+                PlaybackEvent::Prepared(result) => {
+                    let preparation = work.preparation.take().unwrap();
+                    match result {
+                        Ok(audio) => work.ready = Some((preparation.url.clone(), audio)),
+                        Err(e) => {
+                            log::error!("track preparation failed: {e:#}");
+                            state.skip_pending_track();
+                        }
+                    }
+                }
+                PlaybackEvent::Refilled(result) => {
+                    let (mut post, _) = work.refill.take().unwrap();
+                    // A modal playlist change can invalidate an in-flight request.
+                    if serde_json::to_value(&post)? == serde_json::to_value(state.next_post())?
+                        && !state.is_ai_playlist()
+                    {
+                        let page = result?;
+                        let tracks = state.gen_track_list(&page.results)?;
+                        post.cursor = page.cursor;
+                        state.set_next_postdata(&post);
+                        state.append_tracklist(tracks);
+                    }
+                }
+                PlaybackEvent::Wake => {}
+                PlaybackEvent::Finished => {
+                    work.finished = None;
+                    work.skipping = false;
+                }
+                PlaybackEvent::Command(res) => match res {
                     Command::Volume(volume) => {
                         // change volume
                         _current_volume = volume;
                         sink.set_volume(map_volume_to_rodio_volume(_current_volume));
                     }
-                    Command::Next => sink.stop(),
+                    Command::Next => work.next(&state, &sink),
                     Command::TogglePause => {
                         // play pause
                         if sink.is_paused() {
@@ -122,28 +275,43 @@ impl Player<'static> for SharedState {
                         }
                     }
                     Command::Info => info(&state).await?,
-                    Command::Menu => menu(&state).await?,
-                    Command::Playlist => {
-                        state.fill_playlist().await?;
-                        playlist(&state)?
+                    Command::Menu => {
+                        work.refill = None;
+                        work.preparation = None;
+                        work.ready = None;
+                        menu(&state).await?;
                     }
+                    Command::Playlist => playlist(&state)?,
                     Command::History => history(&state)?,
-                    Command::FavoriteSearch => favorite_search(&state).await?,
-                    Command::Search => search(&state).await?,
+                    Command::FavoriteSearch => {
+                        work.refill = None;
+                        work.preparation = None;
+                        work.ready = None;
+                        favorite_search(&state).await?;
+                    }
+                    Command::Search => {
+                        work.refill = None;
+                        work.preparation = None;
+                        work.ready = None;
+                        search(&state).await?;
+                    }
                     Command::AiPlaylist => {
+                        work.refill = None;
+                        work.preparation = None;
+                        work.ready = None;
                         ai_playlist(&state, true).await?;
                     }
                     Command::Help => help(&state)?,
                     Command::Options => options(&state)?,
                     Command::Quit => {
                         let _quit_display = QuitDisplay::new();
-                        if wait_for_quit_or_cancel(&sink, &commands).await {
+                        if wait_for_quit_or_cancel(&sink, &commands, &mut work.finished).await {
                             break;
                         }
                     }
                     Command::CancelQuit => {}
                     Command::Interrupt => break,
-                }
+                },
             }
         }
 
@@ -240,8 +408,12 @@ impl Player<'static> for SharedState {
 }
 
 /// Returns true when playback finishes; Esc returns false to resume the normal queue.
-async fn wait_for_quit_or_cancel(sink: &Sink, commands: &Receiver<Command>) -> bool {
-    if sink.empty() {
+async fn wait_for_quit_or_cancel(
+    sink: &Sink,
+    commands: &Receiver<Command>,
+    finished: &mut Option<tokio::sync::oneshot::Receiver<()>>,
+) -> bool {
+    if finished.is_none() {
         return true;
     }
     let was_paused = sink.is_paused();
@@ -250,63 +422,252 @@ async fn wait_for_quit_or_cancel(sink: &Sink, commands: &Receiver<Command>) -> b
         enable_tick();
     }
     loop {
-        if sink.empty() {
-            return true;
-        }
-        match tokio::time::timeout(Duration::from_millis(50), commands.recv()).await {
-            Ok(Ok(Command::CancelQuit)) => {
-                if was_paused {
-                    sink.pause();
-                    disable_tick();
-                }
-                return false;
+        tokio::select! {
+            _ = playback_finished(finished) => {
+                *finished = None;
+                return true;
             }
-            Ok(Err(_)) => tokio::time::sleep(Duration::from_millis(50)).await,
-            _ => {} // Ignore other commands while waiting for the song to finish.
+            command = commands.recv() => {
+                match command {
+                    Ok(Command::CancelQuit) => {
+                        if was_paused {
+                            sink.pause();
+                            disable_tick();
+                        }
+                        return false;
+                    }
+                    Ok(Command::Interrupt) | Err(_) => return true,
+                    _ => {} // Ignore other commands while finishing this song.
+                }
+            }
         }
     }
-}
-
-async fn play(state: &SharedState, sink: &Sink) -> Result<()> {
-    if sink.empty() {
-        let Some(buf) = state.take_ready_track() else {
-            return Ok(());
-        };
-
-        match Mp3::load(buf)?.symphonia_decoder().await {
-            Ok(mp3) => {
-                state.record_playback_start();
-                update_song_info_on_screen(&state.get_current_track_info())?;
-                sink.append(mp3);
-            }
-            Err(e) => println!("skip: Decode Error {:?}", e),
-        }
-    };
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::libbc::leading_silence::LeadingSilence;
     use rodio::buffer::SamplesBuffer;
+
+    fn pending_preparation(url: &str) -> Preparation {
+        Preparation {
+            url: url.into(),
+            task: ManagedTask::new(tokio::spawn(std::future::pending()), Default::default()),
+        }
+    }
+
+    #[tokio::test]
+    async fn command_does_not_wait_for_preparation_or_refill() {
+        let (sender, receiver) = async_channel::unbounded();
+        let mut work = PlaybackWork {
+            preparation: Some(pending_preparation("next")),
+            refill: Some((
+                PostData::default(),
+                ManagedTask::new(tokio::spawn(std::future::pending()), Default::default()),
+            )),
+            ..Default::default()
+        };
+        sender.send(Command::Next).await.unwrap();
+        assert!(matches!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                work.next_event(&receiver, &SharedState::default())
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+            PlaybackEvent::Command(Command::Next)
+        ));
+    }
+
+    #[tokio::test]
+    async fn preparation_completion_wakes_without_timer() {
+        let (_sender, receiver) = async_channel::unbounded();
+        let mut work = PlaybackWork {
+            preparation: Some(Preparation {
+                url: "next".into(),
+                task: ManagedTask::new(
+                    tokio::spawn(async { Err(anyhow::anyhow!("test failure")) }),
+                    Default::default(),
+                ),
+            }),
+            ..Default::default()
+        };
+        assert!(matches!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                work.next_event(&receiver, &SharedState::default())
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+            PlaybackEvent::Prepared(Err(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn refill_and_ai_notifications_wake_without_timer() {
+        let (_sender, receiver) = async_channel::unbounded();
+        let state = SharedState::default();
+        let mut work = PlaybackWork {
+            refill: Some((
+                PostData::default(),
+                ManagedTask::new(
+                    tokio::spawn(async { Err(anyhow::anyhow!("test refill failure")) }),
+                    Default::default(),
+                ),
+            )),
+            ..Default::default()
+        };
+        assert!(matches!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                work.next_event(&receiver, &state)
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+            PlaybackEvent::Refilled(Err(_))
+        ));
+        work.refill = None;
+        state.changed.notify_one();
+        assert!(matches!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                work.next_event(&receiver, &state)
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+            PlaybackEvent::Wake
+        ));
+    }
+
+    #[tokio::test]
+    async fn skip_playing_song_cancels_analysis_but_keeps_next_download() {
+        let state = SharedState::default();
+        let (sink, _output) = rodio::Sink::new_idle();
+        sink.append(SamplesBuffer::new(1, 1_000, vec![0.5; 1_000]));
+        let mut work = PlaybackWork {
+            preparation: Some(pending_preparation("next")),
+            finished: Some(tokio::sync::oneshot::channel().1),
+            ..Default::default()
+        };
+        work.next(&state, &sink);
+        let preparation = work.preparation.as_ref().unwrap();
+        assert!(preparation
+            .task
+            .skip_analysis
+            .load(std::sync::atomic::Ordering::Relaxed));
+        assert!(!preparation.task.handle.is_finished());
+        assert!(work.urgent);
+    }
+
+    #[tokio::test]
+    async fn skip_waiting_song_aborts_preparation_and_advances_queue() {
+        use crate::models::shared_data_models::Track;
+        let state = SharedState::default();
+        state.append_tracklist(std::collections::VecDeque::from([
+            Track {
+                url: "first".into(),
+                track: "first".into(),
+                ..Default::default()
+            },
+            Track {
+                url: "second".into(),
+                track: "second".into(),
+                ..Default::default()
+            },
+        ]));
+        let (sink, _output) = rodio::Sink::new_idle();
+        let mut work = PlaybackWork {
+            preparation: Some(pending_preparation("first")),
+            ..Default::default()
+        };
+        let skip = work
+            .preparation
+            .as_ref()
+            .unwrap()
+            .task
+            .skip_analysis
+            .clone();
+        work.next(&state, &sink);
+        assert!(work.preparation.is_none());
+        assert!(skip.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(state.preparation_track().unwrap().url, "second");
+    }
+
+    #[test]
+    fn trimmed_pcm_can_be_played_without_an_audio_device() {
+        let (sink, mut output) = Sink::new_idle();
+        let pcm = LeadingSilence::new(
+            SamplesBuffer::new(2, 48_000, vec![0.0, 0.0, 0.5, -0.5, 0.0, 0.0]),
+            true,
+        );
+        sink.append(pcm);
+        let samples: Vec<f32> = output.by_ref().take(4).collect();
+        assert_eq!(samples, vec![0.5, -0.5, 0.0, 0.0]);
+        // An idle sink keeps its output alive with silence after the source ends.
+        let _ = output.next();
+        assert!(sink.empty());
+    }
 
     #[tokio::test]
     async fn playback_wakes_immediately_for_commands() {
         let (sender, receiver) = async_channel::unbounded();
         sender.send(Command::Next).await.unwrap();
-        assert_eq!(
-            tokio::time::timeout(Duration::from_millis(100), next_command(&receiver))
-                .await
-                .expect("a queued command should not wait for the playback timer")
-                .unwrap(),
-            Some(Command::Next)
-        );
+        let mut work = PlaybackWork::default();
+        let state = SharedState::default();
+        assert!(matches!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                work.next_event(&receiver, &state)
+            )
+            .await
+            .expect("a queued command should not wait for the playback timer")
+            .unwrap(),
+            PlaybackEvent::Command(Command::Next)
+        ));
     }
 
     #[tokio::test]
-    async fn playback_times_out_when_idle() {
+    async fn playback_stays_asleep_when_idle() {
         let (_sender, receiver) = async_channel::unbounded();
-        assert_eq!(next_command(&receiver).await.unwrap(), None);
+        let mut work = PlaybackWork::default();
+        assert!(tokio::time::timeout(
+            Duration::from_millis(300),
+            work.next_event(&receiver, &SharedState::default())
+        )
+        .await
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn finished_source_wakes_control_loop_without_polling() {
+        let (_sender, receiver) = async_channel::unbounded();
+        let state = SharedState::default();
+        let (sink, mut output) = Sink::new_idle();
+        let (source, finished) = NotifyOnEnd::new(SamplesBuffer::new(1, 48_000, vec![0.5; 10]));
+        sink.append(source);
+        let mut work = PlaybackWork {
+            finished: Some(finished),
+            ..Default::default()
+        };
+        for _ in 0..11 {
+            output.next();
+        }
+        assert!(matches!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                work.next_event(&receiver, &state)
+            )
+            .await
+            .unwrap()
+            .unwrap(),
+            PlaybackEvent::Finished
+        ));
+        assert!(sink.empty());
     }
 
     #[tokio::test]
@@ -315,7 +676,7 @@ mod tests {
         let (_sender, receiver) = async_channel::unbounded();
         tokio::time::timeout(
             Duration::from_millis(200),
-            wait_for_quit_or_cancel(&sink, &receiver),
+            wait_for_quit_or_cancel(&sink, &receiver, &mut None),
         )
         .await
         .expect("an empty sink should quit immediately");
@@ -325,7 +686,9 @@ mod tests {
     async fn quitting_waits_for_song_and_resumes_paused_playback() {
         let (sink, mut output) = Sink::new_idle();
         let (_sender, receiver) = async_channel::unbounded();
-        sink.append(SamplesBuffer::new(1, 48_000, vec![0_f32; 100]));
+        let (source, finished) = NotifyOnEnd::new(SamplesBuffer::new(1, 48_000, vec![0_f32; 100]));
+        let mut finished = Some(finished);
+        sink.append(source);
         sink.pause();
 
         let consumer = std::thread::spawn(move || {
@@ -334,7 +697,7 @@ mod tests {
                 output.next();
             }
         });
-        let mut waiting = Box::pin(wait_for_quit_or_cancel(&sink, &receiver));
+        let mut waiting = Box::pin(wait_for_quit_or_cancel(&sink, &receiver, &mut finished));
         assert!(
             tokio::time::timeout(Duration::from_millis(75), &mut waiting)
                 .await
@@ -350,21 +713,25 @@ mod tests {
     #[tokio::test]
     async fn esc_cancels_quit_without_stopping_the_song() {
         let (sink, _output) = Sink::new_idle();
-        sink.append(SamplesBuffer::new(1, 48_000, vec![0_f32; 100]));
+        let (source, finished) = NotifyOnEnd::new(SamplesBuffer::new(1, 48_000, vec![0_f32; 100]));
+        let mut finished = Some(finished);
+        sink.append(source);
         let (sender, receiver) = async_channel::unbounded();
         sender.send(Command::CancelQuit).await.unwrap();
-        assert!(!wait_for_quit_or_cancel(&sink, &receiver).await);
+        assert!(!wait_for_quit_or_cancel(&sink, &receiver, &mut finished).await);
         assert!(!sink.empty());
     }
 
     #[tokio::test]
     async fn esc_restores_pause_after_cancelling_quit() {
         let (sink, _output) = Sink::new_idle();
-        sink.append(SamplesBuffer::new(1, 48_000, vec![0_f32; 100]));
+        let (source, finished) = NotifyOnEnd::new(SamplesBuffer::new(1, 48_000, vec![0_f32; 100]));
+        let mut finished = Some(finished);
+        sink.append(source);
         sink.pause();
         let (sender, receiver) = async_channel::unbounded();
         sender.send(Command::CancelQuit).await.unwrap();
-        assert!(!wait_for_quit_or_cancel(&sink, &receiver).await);
+        assert!(!wait_for_quit_or_cancel(&sink, &receiver, &mut finished).await);
         assert!(sink.is_paused());
         assert!(!sink.empty());
     }
@@ -385,7 +752,6 @@ async fn search(state: &SharedState) -> Result<()> {
 async fn favorite_search(state: &SharedState) -> Result<()> {
     let _screen = state.input_gate.resume_after_screen();
     let _dest = Dest();
-    disable_tick_on_screen();
     state.search(None).await
 }
 

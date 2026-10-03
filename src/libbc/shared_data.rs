@@ -1,24 +1,23 @@
 use crate::libbc::ai::ai_track_key;
-use crate::libbc::http_client::get_request;
 use crate::libbc::input_gate::InputGate;
-use crate::libbc::progress_bar::{disable_spinner, enable_spinner};
+#[cfg(test)]
+use crate::libbc::trailing_silence::EndMarker;
 use crate::models::bc_discover_index::{Element, PostData};
 use crate::models::shared_data_models::{CurrentTrack, State, Track};
 use anyhow::Result;
 use chrono::{DateTime, Local, TimeDelta};
-use log::{error, info};
+use log::info;
 use std::clone::Clone;
 use std::collections::{HashSet, VecDeque};
-use std::io;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::task::JoinHandle;
+use tokio::sync::Notify;
 
 #[derive(Default, Debug)]
 pub struct SharedState {
     pub state: Arc<Mutex<State>>,
-    task: Arc<Mutex<Option<(String, JoinHandle<()>)>>>,
+    pub changed: Arc<Notify>,
     pub input_gate: InputGate,
     phantom: PhantomData<&'static ()>,
 }
@@ -27,7 +26,7 @@ impl Clone for SharedState {
     fn clone(&self) -> Self {
         SharedState {
             state: Arc::clone(&self.state),
-            task: self.task.clone(),
+            changed: self.changed.clone(),
             input_gate: self.input_gate.clone(),
             phantom: Default::default(),
         }
@@ -92,6 +91,7 @@ impl SharedState {
             return;
         }
         lock.player.ai_refill_in_progress = false;
+        self.changed.notify_one();
         match result {
             Ok((tracks, terms)) => {
                 lock.player.ai_terms.extend(terms);
@@ -135,69 +135,71 @@ impl SharedState {
         lock.player.tracks.len()
     }
 
-    pub async fn enqueue_truck_buffer(&self) -> Result<()> {
-        let url = {
-            let state = self.state.lock().unwrap();
-            state
-                .player
-                .tracks
-                .front()
-                .and_then(|track| track.buffer.is_empty().then(|| track.url.clone()))
+    /// Discard recently played AI entries before choosing a preparation target.
+    pub fn preparation_track(&self) -> Option<Track> {
+        let mut lock = self.state.lock().unwrap();
+        while lock.player.tracks.front().is_some_and(|track| {
+            track.ai_generated
+                && recently_played(
+                    &lock.player.history,
+                    track.band_id,
+                    &track.track,
+                    Local::now(),
+                )
+        }) {
+            lock.player.tracks.pop_front();
+        }
+        lock.player.tracks.front().cloned()
+    }
+
+    /// Commit only the front track the player actually prepared.
+    pub fn activate_prepared_track(&self, url: &str, duration: Duration) -> bool {
+        let mut lock = self.state.lock().unwrap();
+        if !lock
+            .player
+            .tracks
+            .front()
+            .is_some_and(|track| track.url == url)
+        {
+            return false;
+        }
+        let track = lock.player.tracks.pop_front().unwrap();
+        lock.player.current_track = CurrentTrack {
+            duration: duration.as_secs_f32(),
+            track: track.track,
+            album_title: track.album_title,
+            art_id: track.art_id,
+            band_id: track.band_id,
+            artist_name: track.artist_name,
+            play_date: Local::now(),
+            results: track.results,
+            genre: track.genre,
+            subgenre: track.subgenre,
+            ..Default::default()
         };
-        let mut task = self.task.lock().unwrap();
-        if let Some((active_url, handle)) = task.as_ref() {
-            if !handle.is_finished() && url.as_ref() == Some(active_url) {
-                return Ok(());
-            }
-        }
-        if let Some((_, handle)) = task.take() {
-            handle.abort();
-        }
-        if let Some(url) = url {
-            let state = self.clone();
-            let download_url = url.clone();
-            let handle = tokio::spawn(async move {
-                let _spinner = SpinnerGuard::new();
-                match get_request(&download_url).await {
-                    Ok(buf) => match mp3_duration::from_read(&mut io::Cursor::new(&buf)) {
-                        Ok(duration) => state.set_track_buffer(&download_url, buf, duration),
-                        Err(e) => error!("failed to read mp3 duration: {e}"),
-                    },
-                    Err(e) => error!("failed to download track buffer: {e}"),
-                }
-            });
-            *task = Some((url, handle));
-        }
-        Ok(())
+        true
+    }
+
+    pub fn skip_pending_track(&self) {
+        self.state.lock().unwrap().player.tracks.pop_front();
     }
 
     pub fn append_tracklist(&self, playlist: VecDeque<Track>) {
         let mut lock = self.state.lock().unwrap();
-        let mut playlist = filter_candidates(
-            &lock.player.tracks,
-            &lock.player.history,
-            playlist,
-            Local::now(),
-        );
+        let mut playlist = filter_candidates(&lock.player.tracks, playlist);
         lock.player.tracks.append(&mut playlist);
     }
 
-    pub fn push_front_tracklist(&self, playlist: Track) {
+    pub fn push_front_tracklist(&self, mut playlist: Track) {
         let mut lock = self.state.lock().unwrap();
+        playlist.ai_generated = false;
         // Explicit search selections may move a queued song to the front.
         lock.player.tracks.retain(|song| {
             playlist.track.is_empty()
                 || song.band_id != playlist.band_id
                 || song.track != playlist.track
         });
-        if !recently_played(
-            &lock.player.history,
-            playlist.band_id,
-            &playlist.track,
-            Local::now(),
-        ) {
-            lock.player.tracks.push_front(playlist);
-        }
+        lock.player.tracks.push_front(playlist);
     }
 
     #[allow(dead_code)]
@@ -292,24 +294,42 @@ impl SharedState {
         self.state.lock().unwrap().player.post_data.to_owned()
     }
 
+    #[cfg(test)]
     pub fn set_track_buffer(&self, url: &str, buf: Vec<u8>, duration: Duration) {
+        self.set_analyzed_track_buffer(url, buf, duration, None);
+    }
+    #[cfg(test)]
+    pub fn set_analyzed_track_buffer(
+        &self,
+        url: &str,
+        buf: Vec<u8>,
+        duration: Duration,
+        marker: Option<EndMarker>,
+    ) {
         let mut lock = self.state.lock().unwrap();
         if let Some(track) = lock.player.tracks.front_mut() {
             if track.url == url && track.buffer.is_empty() {
                 track.buffer = buf;
                 track.duration = duration.as_secs_f32();
+                track.end_marker = marker;
             }
         }
     }
+    #[cfg(test)]
     pub fn take_ready_track(&self) -> Option<Vec<u8>> {
+        self.take_ready_audio().map(|(buffer, _)| buffer)
+    }
+    #[cfg(test)]
+    pub fn take_ready_audio(&self) -> Option<(Vec<u8>, Option<EndMarker>)> {
         let mut lock = self.state.lock().unwrap();
         while lock.player.tracks.front().is_some_and(|track| {
-            recently_played(
-                &lock.player.history,
-                track.band_id,
-                &track.track,
-                Local::now(),
-            )
+            track.ai_generated
+                && recently_played(
+                    &lock.player.history,
+                    track.band_id,
+                    &track.track,
+                    Local::now(),
+                )
         }) {
             lock.player.tracks.pop_front();
         }
@@ -333,7 +353,7 @@ impl SharedState {
         lock.player.current_track.results = track.results;
         lock.player.current_track.genre = track.genre;
         lock.player.current_track.subgenre = track.subgenre;
-        Some(buffer)
+        Some((buffer, track.end_marker))
     }
 
     pub fn record_playback_start(&self) {
@@ -375,22 +395,14 @@ fn recently_played(
         })
 }
 
-fn filter_candidates(
-    queued: &VecDeque<Track>,
-    history: &VecDeque<CurrentTrack>,
-    candidates: VecDeque<Track>,
-    now: DateTime<Local>,
-) -> VecDeque<Track> {
+fn filter_candidates(queued: &VecDeque<Track>, candidates: VecDeque<Track>) -> VecDeque<Track> {
     let mut seen: HashSet<(i64, String)> = queued
         .iter()
         .map(|song| (song.band_id, song.track.clone()))
         .collect();
     candidates
         .into_iter()
-        .filter(|song| {
-            !recently_played(history, song.band_id, &song.track, now)
-                && (song.track.is_empty() || seen.insert((song.band_id, song.track.clone())))
-        })
+        .filter(|song| song.track.is_empty() || seen.insert((song.band_id, song.track.clone())))
         .collect()
 }
 
@@ -413,28 +425,19 @@ fn filter_ai_candidates(
             })
         })
         .collect();
-    filter_candidates(queued, history, candidates, now)
+    filter_candidates(queued, candidates)
         .into_iter()
         .filter(|song| {
             let key = ai_track_key(song);
-            !recently_played_keys.contains(&key) && seen.insert(key)
+            !recently_played(history, song.band_id, &song.track, now)
+                && !recently_played_keys.contains(&key)
+                && seen.insert(key)
+        })
+        .map(|mut song| {
+            song.ai_generated = true;
+            song
         })
         .collect()
-}
-
-struct SpinnerGuard;
-
-impl SpinnerGuard {
-    fn new() -> Self {
-        enable_spinner();
-        Self
-    }
-}
-
-impl Drop for SpinnerGuard {
-    fn drop(&mut self) {
-        disable_spinner();
-    }
 }
 
 #[cfg(test)]
@@ -451,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn filters_queue_duplicates_and_only_recent_history() {
+    fn ai_filters_queue_duplicates_and_only_recent_history() {
         let now = Local::now();
         let queue = VecDeque::from([song("queued")]);
         let history = VecDeque::from([
@@ -475,7 +478,7 @@ mod tests {
             song("new"),
             song("new"),
         ]);
-        let filtered = filter_candidates(&queue, &history, candidates, now);
+        let filtered = filter_ai_candidates(&queue, &history, candidates, now);
         assert_eq!(
             filtered
                 .iter()
@@ -514,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn records_start_once_and_avoids_replay_even_if_queued_again() {
+    fn records_start_once_and_allows_non_ai_replay() {
         let state = SharedState::default();
         let mut first = song("first");
         first.buffer = vec![1];
@@ -525,8 +528,97 @@ mod tests {
         assert_eq!(state.history().len(), 1);
         assert_eq!(state.history()[0].track, "first");
         state.append_tracklist(VecDeque::from([song("first"), song("next")]));
-        assert_eq!(state.get_tracklist().len(), 1);
-        assert_eq!(state.get_tracklist()[0].track, "next");
+        assert_eq!(state.get_tracklist().len(), 2);
+        assert_eq!(state.preparation_track().unwrap().track, "first");
+    }
+
+    #[test]
+    fn end_marker_travels_with_its_buffer_and_keeps_original_duration() {
+        let state = SharedState::default();
+        state.push_front_tracklist(Track {
+            url: "marked".into(),
+            ..Default::default()
+        });
+        let marker = EndMarker {
+            frame: 48_000,
+            sample_rate: 48_000,
+        };
+        state.set_analyzed_track_buffer("stale", vec![9], Duration::from_secs(9), Some(marker));
+        assert!(state.take_ready_audio().is_none());
+        state.set_analyzed_track_buffer("marked", vec![1, 2], Duration::from_secs(3), Some(marker));
+        assert_eq!(state.take_ready_audio(), Some((vec![1, 2], Some(marker))));
+        assert_eq!(state.get_current_track_info().duration, 3.0);
+    }
+
+    #[test]
+    fn manual_search_can_replay_recent_songs_even_during_ai_playback() {
+        for ai_active in [false, true] {
+            let state = SharedState::default();
+            if ai_active {
+                assert!(state.start_ai_playlist(
+                    "jazz".into(),
+                    vec![],
+                    VecDeque::from([song("next")]),
+                ));
+            }
+            state
+                .state
+                .lock()
+                .unwrap()
+                .player
+                .history
+                .push_back(CurrentTrack {
+                    band_id: 42,
+                    track: "recent".into(),
+                    play_date: Local::now(),
+                    ..Default::default()
+                });
+            let mut selected = song("recent");
+            selected.ai_generated = true;
+            state.push_front_tracklist(selected.clone());
+            state.push_front_tracklist(selected);
+            assert_eq!(
+                state
+                    .get_tracklist()
+                    .iter()
+                    .filter(|s| s.track == "recent")
+                    .count(),
+                1
+            );
+            let track = state
+                .preparation_track()
+                .expect("manual song must not be discarded");
+            assert_eq!(track.track, "recent");
+            assert!(!track.ai_generated);
+            assert_eq!(state.is_ai_playlist(), ai_active);
+            assert!(state.activate_prepared_track(&track.url, Duration::from_secs(2)));
+            assert_eq!(state.get_current_track_info().track, "recent");
+        }
+    }
+
+    #[test]
+    fn ai_preparation_still_discards_songs_played_since_generation() {
+        let state = SharedState::default();
+        assert!(state.start_ai_playlist(
+            "jazz".into(),
+            vec![],
+            VecDeque::from([song("recent"), song("next")]),
+        ));
+        assert!(state.get_tracklist().iter().all(|s| s.ai_generated));
+        state
+            .state
+            .lock()
+            .unwrap()
+            .player
+            .history
+            .push_back(CurrentTrack {
+                band_id: 42,
+                track: "recent".into(),
+                play_date: Local::now(),
+                ..Default::default()
+            });
+        assert_eq!(state.preparation_track().unwrap().track, "next");
+        assert_eq!(state.queue_length_from_truck_list(), 1);
     }
 
     #[test]
@@ -744,29 +836,17 @@ mod tests {
         assert!(state.take_ready_track().is_none());
     }
 
-    #[tokio::test]
-    async fn completed_or_cancelled_download_does_not_block_next_track() {
+    #[test]
+    fn stale_preparation_cannot_activate_a_different_front_track() {
         let state = SharedState::default();
-        state.push_front_tracklist(Track {
-            url: "not-a-url".into(),
-            ..Default::default()
-        });
-        state.enqueue_truck_buffer().await.unwrap();
-        let first = state.task.lock().unwrap().as_ref().unwrap().1.id();
-        state.enqueue_truck_buffer().await.unwrap();
-        assert_eq!(state.task.lock().unwrap().as_ref().unwrap().1.id(), first);
-
-        state.clear_all_tracklist();
-        state.enqueue_truck_buffer().await.unwrap();
-        assert!(state.task.lock().unwrap().is_none());
-
-        state.push_front_tracklist(Track {
-            url: "another-invalid-url".into(),
-            ..Default::default()
-        });
-        state.enqueue_truck_buffer().await.unwrap();
-        assert_ne!(state.task.lock().unwrap().as_ref().unwrap().1.id(), first);
-        state.clear_all_tracklist();
-        state.enqueue_truck_buffer().await.unwrap();
+        state.append_tracklist(VecDeque::from([song("first"), song("second")]));
+        let first = state.preparation_track().unwrap();
+        state.skip_pending_track();
+        assert!(!state.activate_prepared_track(&first.url, Duration::from_secs(1)));
+        let second = state.preparation_track().unwrap();
+        assert!(state.activate_prepared_track(&second.url, Duration::from_secs(2)));
+        assert_eq!(state.get_current_track_info().track, "second");
+        assert_eq!(state.get_current_track_info().duration, 2.0);
+        assert_eq!(state.queue_length_from_truck_list(), 0);
     }
 }

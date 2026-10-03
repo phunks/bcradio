@@ -84,6 +84,12 @@ pub struct Args {
     /// disable SSL verification
     #[arg(long, short)]
     no_ssl_verify: bool,
+    /// Preserve leading silence instead of trimming decoded PCM
+    #[arg(long)]
+    no_trim_leading_silence: bool,
+    /// Disable downloaded-buffer trailing PCM silence analysis and trimming
+    #[arg(long)]
+    no_trim_trailing_silence: bool,
     /// image size
     #[arg(long, short, default_value_t = 30)]
     img_width: u16,
@@ -105,7 +111,10 @@ pub fn about() -> &'static str {
 static ARGS: OnceLock<Args> = OnceLock::new();
 
 pub fn init_args() {
-    let _ = ARGS.set(Args::parse());
+    let args = Args::parse();
+    crate::libbc::leading_silence::set_enabled(!args.no_trim_leading_silence);
+    crate::libbc::trailing_silence::set_enabled(!args.no_trim_trailing_silence);
+    let _ = ARGS.set(args);
 }
 
 fn args() -> &'static Args {
@@ -261,6 +270,41 @@ mod ai_key_tests {
     #[test]
     fn rejects_removed_proxy_option() {
         assert!(Args::try_parse_from(["bcradio", "--proxy", "socks5://localhost:1080"]).is_err());
+    }
+
+    #[test]
+    fn leading_silence_trimming_can_be_disabled() {
+        assert!(
+            !Args::try_parse_from(["bcradio"])
+                .unwrap()
+                .no_trim_leading_silence
+        );
+        assert!(
+            Args::try_parse_from(["bcradio", "--no-trim-leading-silence"])
+                .unwrap()
+                .no_trim_leading_silence
+        );
+    }
+
+    #[test]
+    fn trailing_silence_trimming_can_be_disabled_independently() {
+        let defaults = Args::try_parse_from(["bcradio"]).unwrap();
+        assert!(!defaults.no_trim_trailing_silence);
+        let args = Args::try_parse_from(["bcradio", "--no-trim-trailing-silence"]).unwrap();
+        assert!(args.no_trim_trailing_silence);
+        assert!(!args.no_trim_leading_silence);
+    }
+
+    #[test]
+    fn both_silence_trimming_options_can_be_disabled_at_startup() {
+        let args = Args::try_parse_from([
+            "bcradio",
+            "--no-trim-leading-silence",
+            "--no-trim-trailing-silence",
+        ])
+        .unwrap();
+        assert!(args.no_trim_leading_silence);
+        assert!(args.no_trim_trailing_silence);
     }
 }
 pub fn args_no_ssl_verify() -> bool {

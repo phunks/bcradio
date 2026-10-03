@@ -31,6 +31,14 @@ pub enum Selection {
 
 const AI_INPUT: &str = "AI input";
 
+/// Fetch without changing shared state; the player commits background results.
+pub(crate) async fn fetch_discover_page(post_data: &PostData) -> Result<DiscoverJsonRequest> {
+    let url = "https://bandcamp.com/api/discover/1/discover_web";
+    let response = post_request(url, post_data).await?;
+    debug!("discover response: {} bytes", response.len());
+    Ok(serde_json::from_slice(&bytes_mut(&response)?)?)
+}
+
 fn genre_options(genres: &[Element]) -> Vec<String> {
     std::iter::once(AI_INPUT.to_owned())
         .chain(genres.iter().map(|genre| genre.label.clone()))
@@ -161,14 +169,7 @@ impl PlayList for SharedState {
     }
 
     async fn discover_json(&self, post_data: &PostData) -> Result<Vec<Results>> {
-        let url = "https://bandcamp.com/api/discover/1/discover_web";
-        let a = post_request(url, post_data).await;
-        debug!(
-            "discover response: {} bytes",
-            a.as_ref().map_or(0, Vec::len)
-        );
-        let json: DiscoverJsonRequest = serde_json::from_slice(&bytes_mut(a?.as_slice())?)?;
-
+        let json = fetch_discover_page(post_data).await?;
         let aa = json.results;
         self.set_next_postdata(&PostData {
             cursor: json.cursor.clone(),
@@ -418,6 +419,8 @@ impl PlayList for SharedState {
                 duration: featured_track.duration.unwrap_or_default(),
                 track: featured_track.title.to_owned(),
                 buffer: vec![],
+                ai_generated: false,
+                end_marker: None,
                 results: ResultsJson::Select(Box::new(i.clone())),
                 genre: Some(self.get_genre().to_owned()),
                 subgenre: Some(self.get_subgenre().to_owned()),
