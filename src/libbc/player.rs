@@ -791,6 +791,7 @@ pub(crate) async fn ai_playlist(state: &SharedState, during_playback: bool) -> R
             }
         }
         Err(e) => {
+            crate::logger::report_error(&e);
             crate::libbc::terminal::print_error(format!("{e:#}"));
             Ok(false)
         }
@@ -811,6 +812,7 @@ fn options(state: &SharedState) -> Result<()> {
             Err(e)
         }
         Err(e) => {
+            crate::logger::report_error(&e);
             crate::libbc::terminal::print_error(format!("{e:#}"));
             Ok(())
         }

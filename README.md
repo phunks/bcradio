@@ -46,6 +46,28 @@ the OS temporary directory (`$env:TEMP` on Windows). Use `-v`, `-vv`, or `-vvv`
 for increasing verbosity; `RUST_LOG` overrides the default log filter.
 `--no-ssl-verify` does not disable certificate verification for the AI API.
 
+### Diagnosing errors
+
+Bandcamp JSON decode errors include the operation / endpoint, destination Rust
+type, response size, and decode call site, followed by the original JSON error
+(including its line and column). Response bodies are not included in these
+diagnostics. The JSON line and column refer to the response, not Rust source.
+Errors shown by the player are also recorded in the daily JSON log with their
+cause chain and reporting location (normal quit / cancellation is excluded).
+
+To include an anyhow backtrace in error logs, enable it **before starting**:
+
+```sh
+RUST_LIB_BACKTRACE=1 bcradio -vv
+```
+
+In PowerShell, use `$env:RUST_LIB_BACKTRACE = "1"` before running `bcradio -vv`.
+`RUST_BACKTRACE=1` also enables anyhow backtraces unless overridden by
+`RUST_LIB_BACKTRACE`. Increasing `-v` alone does not enable backtraces.
+Release builds strip symbols, so use a debug build (`cargo run -- -vv`) when
+you need more useful stack frames. Backtraces describe error creation, not
+necessarily the complete async call chain.
+
 ## Proxy configuration
 All HTTP requests (Bandcamp and AI) use reqwest's default proxy settings:
 `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` (or their lowercase variants).
@@ -61,6 +83,24 @@ bcradio
 Use an `http://` or `https://` URL instead for an HTTP proxy.
 
 The former `--proxy` option is no longer supported.
+
+## Live Bandcamp JSON contract test
+
+This opt-in test fetches fresh Discover API JSON for all genres, jazz, and
+electronic, then decodes it with the application's models. It also checks that
+featured tracks and image IDs are not silently lost through optional fields.
+It does not play audio, download streams, or call an AI API. Unknown additional
+JSON fields are allowed; this is a compatibility check, not an exact snapshot.
+
+```sh
+cargo test --bin bcradio live_bandcamp_discover_json_contract -- --ignored --nocapture
+```
+
+Omit the proxy variables for a direct connection. TLS verification remains
+enabled. The test is ignored by default because it depends on the network and
+Bandcamp availability. Run it periodically or when an API change is suspected;
+failures may indicate an HTTP/proxy problem, empty results, or incompatible JSON
+(the error distinguishes these cases). Signed stream URLs are not printed.
 
 ## AI API key storage
 

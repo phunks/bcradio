@@ -118,6 +118,7 @@ impl SharedState {
                 }
             }
             Err(e) => {
+                crate::logger::report_error(&e);
                 crate::libbc::terminal::print_error(format!(
                     "AI refill failed: {e:#}; retrying in 5 minutes"
                 ));

@@ -67,7 +67,7 @@ pub fn html_to_json(res: Vec<u8>) -> Result<Value> {
 
     let mut b = BytesMut::new();
     b.extend_from_slice(c.as_ref());
-    Ok(simd_json::from_slice(&mut b)?)
+    simd_json::from_slice(&mut b).context("failed to decode Bandcamp script[data-tralbum] JSON")
 }
 
 pub fn j2t(json: Value) -> Result<Vec<Track>> {
@@ -94,7 +94,8 @@ pub fn j2t(json: Value) -> Result<Vec<Track>> {
             release_date: json["current"]["publish_date"].to_string(),
         },
         artist: json["artist"].to_string(),
-        trackinfo: simd_json::serde::from_refowned_value::<Vec<TrackInfo>>(&json["trackinfo"])?,
+        trackinfo: simd_json::serde::from_refowned_value::<Vec<TrackInfo>>(&json["trackinfo"])
+            .context("failed to decode Bandcamp data-tralbum.trackinfo as Vec<TrackInfo>")?,
         album_url: Option::from(item_path),
         item_url: Option::from(item_url),
     };

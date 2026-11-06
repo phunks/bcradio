@@ -15,7 +15,6 @@ use crate::models::bc_error::BcradioError;
 use crate::models::shared_data_models::{ResultsJson, Track};
 use crate::{ceil, format_duration, lazy_regex};
 use anyhow::{Context, Error, Result};
-use bytes::BytesMut;
 use inquire::ui::{Attributes, Color, RenderConfig, StyleSheet, Styled};
 use inquire::{InquireError, Select};
 use itertools::Itertools;
@@ -34,9 +33,14 @@ const AI_INPUT: &str = "AI input";
 /// Fetch without changing shared state; the player commits background results.
 pub(crate) async fn fetch_discover_page(post_data: &PostData) -> Result<DiscoverJsonRequest> {
     let url = "https://bandcamp.com/api/discover/1/discover_web";
-    let response = post_request(url, post_data).await?;
+    let response = post_request(url, post_data)
+        .await
+        .context("failed to fetch Bandcamp Discover API response")?;
     debug!("discover response: {} bytes", response.len());
-    Ok(serde_json::from_slice(&bytes_mut(&response)?)?)
+    crate::libbc::json::decode(
+        &response,
+        &format!("Bandcamp Discover API response ({url})"),
+    )
 }
 
 fn genre_options(genres: &[Element]) -> Vec<String> {
@@ -154,18 +158,13 @@ impl PlayList for SharedState {
         let slice = String::from_utf8(buf)?;
         let doc = Html::parse_document(&slice);
 
-        let c = parse_doc(doc, "div[id='DiscoverApp']", "data-blob")?;
+        let c = parse_doc(doc, "div[id='DiscoverApp']", "data-blob")
+            .with_context(|| format!("failed to extract DiscoverApp data-blob from {url}"))?;
 
-        let json: Result<DiscoverIndexRequest, serde_json::Error> =
-            serde_json::from_slice(&bytes_mut(c.as_bytes())?);
-
-        match json {
-            Ok(r) => Ok(r),
-            Err(e) => {
-                eprintln!("{e}");
-                Err(Error::from(e))
-            }
-        }
+        crate::libbc::json::decode(
+            c.as_bytes(),
+            &format!("Bandcamp DiscoverApp data-blob ({url})"),
+        )
     }
 
     async fn discover_json(&self, post_data: &PostData) -> Result<Vec<Results>> {
@@ -183,10 +182,16 @@ impl PlayList for SharedState {
 
         let a = post_request(url, post_data).await;
 
-        let json: Result<DiscoverTagsJson, serde_json::Error> =
-            serde_json::from_slice(&bytes_mut(a?.as_slice())?);
+        let response = a?;
+        let json = crate::libbc::json::decode::<DiscoverTagsJson>(
+            &response,
+            &format!("Bandcamp related tags response ({url})"),
+        );
         let s = match json
-            .unwrap_or_else(|_| DiscoverTagsJson::default())
+            .unwrap_or_else(|error| {
+                tracing::warn!(error = ?error, "using empty related tags after decode failure");
+                DiscoverTagsJson::default()
+            })
             .single_results
             .first()
         {
@@ -494,12 +499,6 @@ fn pick_element(g: &[Element], key: &str) -> Option<Element> {
         None => g.iter().find(|&x| x.slug == key).cloned(),
         Some(a) => Some(a.clone()),
     }
-}
-
-fn bytes_mut(a: &[u8]) -> Result<BytesMut> {
-    let mut b = BytesMut::new();
-    b.extend_from_slice(a);
-    Ok(b)
 }
 
 lazy_regex!(

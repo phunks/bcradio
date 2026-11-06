@@ -73,7 +73,7 @@ pub async fn find_tracks(term: &str) -> Result<Vec<crate::models::shared_data_mo
     .await
     .context("Bandcamp search request failed")?;
     let response: SearchJsonResponse =
-        serde_json::from_slice(&val).context("invalid Bandcamp search response")?;
+        crate::libbc::json::decode(&val, "Bandcamp search response (https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic)")?;
     let result_count = response.auto.results.len();
     let urls = ai_search_urls(&response.auto.results);
     tracing::debug!(
@@ -272,8 +272,8 @@ impl Search for SharedState {
 
         let val = post_request(url, &search_json_req).await?;
 
-        let search_json_response =
-            simd_json::from_slice::<SearchJsonResponse>(val.clone().as_mut_slice())?;
+        let search_json_response: SearchJsonResponse =
+            crate::libbc::json::decode(&val, &format!("Bandcamp search response ({url})"))?;
         let mut v: Vec<String> = Vec::new();
         for search_item in search_json_response.auto.results {
             if let Some(url) = search_item.item_url_path.to_owned() {

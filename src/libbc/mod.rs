@@ -6,6 +6,7 @@ pub mod command;
 pub mod http_adapter;
 pub mod http_client;
 pub mod input_gate;
+pub(crate) mod json;
 pub mod leading_silence;
 mod macros;
 pub mod options;

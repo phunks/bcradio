@@ -45,6 +45,12 @@ async fn main() -> Result<()> {
     println!("{}", LOGO);
 
     if let Err(e) = start_playing().await {
+        if !matches!(
+            e.downcast_ref::<BcradioError>(),
+            Some(BcradioError::Quit | BcradioError::Cancel | BcradioError::OperationInterrupted)
+        ) {
+            crate::logger::report_error(&e);
+        }
         disable_raw_mode()?;
         terminal::print_error(format!("{e:#}"));
     }
