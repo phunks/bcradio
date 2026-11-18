@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::LazyLock;
 
 use crate::libbc::ai;
-use crate::libbc::http_client::{get_request, post_request};
+use crate::libbc::http_client::{get_discover, post_request};
 use crate::libbc::player;
 use crate::libbc::progress_bar::{destroy, GenerationStatus};
 use crate::libbc::search::parse_doc;
@@ -37,10 +37,24 @@ pub(crate) async fn fetch_discover_page(post_data: &PostData) -> Result<Discover
         .await
         .context("failed to fetch Bandcamp Discover API response")?;
     debug!("discover response: {} bytes", response.len());
-    crate::libbc::json::decode(
+    let page: DiscoverJsonRequest = crate::libbc::json::decode(
         &response,
         &format!("Bandcamp Discover API response ({url})"),
-    )
+    )?;
+    validate_discover_page(&page, post_data)?;
+    Ok(page)
+}
+
+fn validate_discover_page(page: &DiscoverJsonRequest, post_data: &PostData) -> Result<()> {
+    anyhow::ensure!(
+        page.cursor.is_none() || page.cursor != post_data.cursor,
+        "Bandcamp Discover pagination cursor did not advance; stopping repeated requests"
+    );
+    anyhow::ensure!(
+        !page.results.is_empty() || page.cursor.is_none(),
+        "Bandcamp Discover returned an empty page with a continuation cursor; stopping repeated requests"
+    );
+    Ok(())
 }
 
 fn genre_options(genres: &[Element]) -> Vec<String> {
@@ -153,9 +167,7 @@ impl PlayList for SharedState {
     }
 
     async fn discover_index(&self, url: &str) -> Result<DiscoverIndexRequest> {
-        let buf = get_request(url).await?;
-
-        let slice = String::from_utf8(buf)?;
+        let slice = get_discover(url).await?;
         let doc = Html::parse_document(&slice);
 
         let c = parse_doc(doc, "div[id='DiscoverApp']", "data-blob")
@@ -214,7 +226,7 @@ impl PlayList for SharedState {
 
     async fn choice(&self) -> Result<Selection> {
         inquire::set_global_render_config(render_config());
-        let url = "https://bandcamp.com/discover/";
+        let url = "https://bandcamp.com/discover";
 
         loop {
             let r = self.discover_index(url).await;
@@ -412,7 +424,7 @@ impl PlayList for SharedState {
     fn gen_track_list(&self, items: &[Results]) -> Result<VecDeque<Track>> {
         let mut track_list = VecDeque::new();
         for i in items.iter() {
-            let Some(featured_track) = i.featured_track.as_ref() else {
+            let Some(featured_track) = i.playback_track() else {
                 continue;
             };
             track_list.append(&mut VecDeque::from([Track {
@@ -431,6 +443,17 @@ impl PlayList for SharedState {
                 subgenre: Some(self.get_subgenre().to_owned()),
             }]));
         }
+        debug!(
+            results = items.len(),
+            playable = track_list.len(),
+            skipped = items.len() - track_list.len(),
+            "converted Discover results"
+        );
+        anyhow::ensure!(
+            items.is_empty() || !track_list.is_empty(),
+            "Bandcamp Discover returned {} results but no playable tracks (expected playerData/featuredTrack with a non-empty streamUrl); possible API schema change or unavailable streams",
+            items.len()
+        );
         Ok(track_list)
     }
 
@@ -603,7 +626,8 @@ mod tests {
     use crate::libbc::args::init_args;
     use crate::libbc::playlist::PlayList;
     use crate::libbc::shared_data::SharedState;
-    use crate::models::bc_discover_json::DiscoverJsonRequest;
+    use crate::models::bc_discover_index::PostData;
+    use crate::models::bc_discover_json::{DiscoverJsonRequest, Results};
     use crate::models::shared_data_models::Track;
     use serde_json::json;
     use std::collections::VecDeque;
@@ -666,6 +690,44 @@ mod tests {
         ));
         state.fill_playlist().await.unwrap();
         assert_eq!(state.get_tracklist()[0].track, "last");
+    }
+
+    #[test]
+    fn rejects_unplayable_discover_results_instead_of_silently_refilling() {
+        let state = SharedState::default();
+        let error = state.gen_track_list(&[Results::default()]).unwrap_err();
+        assert!(error.to_string().contains("no playable tracks"));
+        let mut result = Results::default();
+        result.player_data = Some(crate::models::bc_discover_json::FeaturedTrack::default());
+        let error = state.gen_track_list(&[result]).unwrap_err();
+        assert!(error.to_string().contains("no playable tracks"));
+        assert!(state.gen_track_list(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn rejects_nonprogressing_discover_pages() {
+        let mut page: DiscoverJsonRequest = serde_json::from_value(json!({
+            "results": [], "result_count": 0, "batch_result_count": 0, "cursor": "same"
+        }))
+        .unwrap();
+        let post = PostData {
+            cursor: Some("same".into()),
+            ..Default::default()
+        };
+        assert!(super::validate_discover_page(&page, &post)
+            .unwrap_err()
+            .to_string()
+            .contains("did not advance"));
+        page.cursor = Some("next".into());
+        assert!(super::validate_discover_page(&page, &post)
+            .unwrap_err()
+            .to_string()
+            .contains("empty page"));
+        page.cursor = None;
+        super::validate_discover_page(&page, &post).unwrap();
+        page.results.push(Results::default());
+        page.cursor = Some("next".into());
+        super::validate_discover_page(&page, &post).unwrap();
     }
 
     #[test]

@@ -110,6 +110,11 @@ pub fn about() -> &'static str {
 
 static ARGS: OnceLock<Args> = OnceLock::new();
 
+#[cfg(test)]
+pub(super) fn init_test_args() {
+    let _ = ARGS.set(Args::parse_from(["bcradio"]));
+}
+
 pub fn init_args() {
     let args = Args::parse();
     crate::libbc::leading_silence::set_enabled(!args.no_trim_leading_silence);

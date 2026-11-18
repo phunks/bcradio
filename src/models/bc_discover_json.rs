@@ -49,6 +49,8 @@ pub struct Results {
     pub package_info: Option<Vec<Package>>,
     #[serde(alias = "featured_track")]
     pub featured_track: Option<FeaturedTrack>,
+    #[serde(alias = "player_data")]
+    pub player_data: Option<FeaturedTrack>,
     #[serde(alias = "band_location")]
     pub band_location: Option<String>,
     #[serde(alias = "track_count")]
@@ -73,11 +75,25 @@ impl Clone for Results {
             release_date: self.release_date.clone(),
             package_info: self.package_info.clone(),
             featured_track: self.featured_track.clone(),
+            player_data: self.player_data.clone(),
             band_location: self.band_location.clone(),
             track_count: self.track_count,
             duration: self.duration,
             primary_image: self.primary_image.clone(),
         }
+    }
+}
+
+impl Results {
+    pub(crate) fn playback_track(&self) -> Option<&FeaturedTrack> {
+        self.featured_track
+            .as_ref()
+            .filter(|track| !track.stream_url.trim().is_empty())
+            .or_else(|| {
+                self.player_data
+                    .as_ref()
+                    .filter(|track| !track.stream_url.trim().is_empty())
+            })
     }
 }
 
@@ -87,7 +103,7 @@ pub struct FeaturedTrack {
     #[serde(alias = "band_id")]
     pub band_id: i64,
     pub title: String,
-    #[serde(alias = "band_name")]
+    #[serde(alias = "band_name", alias = "artistName", alias = "artist_name")]
     pub band_name: String,
     #[serde(alias = "stream_url")]
     pub stream_url: String,
@@ -179,7 +195,7 @@ mod tests {
             "trackCount": 1,
             "duration": 258.7001953125,
             "packageInfo": null,
-            "playerData": {"price": {"amount": 1.0, "isMoney": true}}
+            "playerData": null
         })
     }
 
@@ -204,6 +220,36 @@ mod tests {
         assert_eq!(featured.title, "Cover Up");
         assert_eq!(featured.stream_url, "https://example.com/song.mp3");
         assert_eq!(featured.duration, Some(258.7));
+    }
+
+    #[test]
+    fn decodes_current_player_data_and_legacy_featured_track() {
+        for legacy_null in [false, true] {
+            let mut value = discover_result();
+            value.as_object_mut().unwrap().remove("featuredTrack");
+            if legacy_null {
+                value["featuredTrack"] = serde_json::Value::Null;
+            }
+            value["playerData"] = json!({
+                "bandId": 42,
+                "artistName": "Current Artist",
+                "title": "Current Song",
+                "streamUrl": "https://example.com/current.mp3",
+                "duration": 123.5
+            });
+            let result: Results = serde_json::from_value(value).unwrap();
+            let track = result.playback_track().unwrap();
+            assert_eq!(track.band_name, "Current Artist");
+            assert_eq!(track.title, "Current Song");
+            assert_eq!(track.duration, Some(123.5));
+            let tracks = crate::libbc::playlist::PlayList::gen_track_list(
+                &crate::libbc::shared_data::SharedState::default(),
+                &[result],
+            )
+            .unwrap();
+            assert_eq!(tracks[0].url, "https://example.com/current.mp3");
+            assert_eq!(tracks[0].artist_name, "Current Artist");
+        }
     }
 
     #[test]
@@ -305,14 +351,31 @@ mod tests {
                 );
                 images += usize::from(item.primary_image.image_id.is_some());
 
-                let featured = raw_item
-                    .get("featuredTrack")
-                    .context("missing featuredTrack key")?;
-                ensure!(
-                    item.featured_track.is_some() == !featured.is_null(),
-                    "{location}: featuredTrack was not preserved"
-                );
-                if let Some(track) = &item.featured_track {
+                for (key, decoded) in [
+                    ("featuredTrack", &item.featured_track),
+                    ("playerData", &item.player_data),
+                ] {
+                    let raw_track = raw_item.get(key).filter(|value| !value.is_null());
+                    ensure!(
+                        decoded.is_some() == raw_track.is_some(),
+                        "{location}: {key} was not preserved"
+                    );
+                    if let (Some(track), Some(raw_track)) = (decoded, raw_track) {
+                        ensure!(
+                            Some(track.stream_url.as_str()) == raw_track["streamUrl"].as_str(),
+                            "{location}: {key}.streamUrl was not preserved"
+                        );
+                        let artist = raw_track
+                            .get("artistName")
+                            .or_else(|| raw_track.get("bandName"));
+                        ensure!(
+                            Some(track.band_name.as_str())
+                                == artist.and_then(serde_json::Value::as_str),
+                            "{location}: {key} artist was not preserved"
+                        );
+                    }
+                }
+                if let Some(track) = item.playback_track() {
                     ensure!(
                         track.band_id > 0,
                         "{location}: invalid featuredTrack.bandId"
@@ -336,7 +399,15 @@ mod tests {
                 images > 0,
                 "{label}: no image IDs; image contract was not exercised"
             );
-            println!("Bandcamp Discover ({label}): {} results, {playable} featured tracks, {images} images decoded", response.results.len());
+            let tracks = crate::libbc::playlist::PlayList::gen_track_list(
+                &crate::libbc::shared_data::SharedState::default(),
+                &response.results,
+            )?;
+            ensure!(
+                tracks.len() == playable,
+                "{label}: playable tracks were lost during playlist conversion"
+            );
+            println!("Bandcamp Discover ({label}): {} results, {playable} playable tracks, {images} images decoded and converted", response.results.len());
         }
         Ok(())
     }

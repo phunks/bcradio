@@ -4,7 +4,16 @@ use log::{error, info};
 use reqwest::header::HeaderMap;
 use reqwest::{header, Client};
 use serde::Serialize;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+
+// Session cookies are kept only in memory, including Discover challenge completion.
+pub(super) static COOKIE_JAR: LazyLock<Arc<reqwest::cookie::Jar>> =
+    LazyLock::new(|| Arc::new(reqwest::cookie::Jar::default()));
+
+pub async fn get_discover(url: &str) -> Result<String> {
+    crate::libbc::discover::get(url).await
+}
 
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100";
 
@@ -81,6 +90,7 @@ pub fn client_builder(headers: HeaderMap) -> reqwest::Result<Client> {
     }
 
     let cb = Client::builder()
+        .cookie_provider(COOKIE_JAR.clone())
         .danger_accept_invalid_certs(no_ssl_verify)
         .default_headers(headers)
         .timeout(Duration::from_secs(10))
